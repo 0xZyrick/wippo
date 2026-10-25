@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  handle      String    @unique
+  email       String    @unique
+  displayName String?
+  createdAt   DateTime  @default(now())
+  projects    Project[]
+}
+
+model Project {
+  id              String                   @id @default(cuid())
+  creatorId       String
+  creator         User                     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  title           String
+  slug            String
+  intent          String                   @default("")
+  /// Optional JSON: { "x"?: string, "website"?: string, "other"?: string }
+  links           Json?
+  /// Optional public image URL (CDN / Storage)
+  imageUrl        String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  updates         ProjectUpdate[]
+  emailFollowers  ProjectEmailSubscriber[]
+
+  @@unique([creatorId, slug])
+  @@index([slug])
+}
+
+model ProjectUpdate {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number    Int
+  headline  String
+  why       String
+  mediaUrl  String?
+  mediaKind String? // image | video | audio
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, number])
+  @@index([projectId])
+}
+
+model ProjectEmailSubscriber {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, email])
+}
+
+model OtpChallenge {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
