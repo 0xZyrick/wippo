@@ -10,7 +10,7 @@ export async function GET(
   const user = await getSessionUser();
   if (!hasDatabase) {
     const found = memory.getProjectById(params.id);
-    if (!found) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!found) return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
     if (user && found.project.creatorId !== user.id) {
       // owner workspace only — public uses /api/public
     }
@@ -27,7 +27,7 @@ export async function GET(
       creator: { select: { handle: true } },
     },
   });
-  if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!project) return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
   return NextResponse.json({
     project: {
       id: project.id,
@@ -55,7 +55,7 @@ export async function PATCH(
 ) {
   const user = await getSessionUser();
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
   }
 
   let body: {
@@ -66,7 +66,7 @@ export async function PATCH(
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Something went wrong with that request. Please try again." }, { status: 400 });
   }
 
   const title =
@@ -76,7 +76,7 @@ export async function PATCH(
   const links = body.links;
 
   if (title !== undefined && !title) {
-    return NextResponse.json({ error: "Title required" }, { status: 400 });
+    return NextResponse.json({ error: "Please add a project title." }, { status: 400 });
   }
 
   if (!hasDatabase) {
@@ -86,7 +86,7 @@ export async function PATCH(
       links,
     });
     if (!updated) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
     }
     return NextResponse.json({
       project: {
@@ -105,7 +105,7 @@ export async function PATCH(
     where: { id: params.id },
   });
   if (!existing || existing.creatorId !== user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
   }
 
   const project = await prisma.project.update({

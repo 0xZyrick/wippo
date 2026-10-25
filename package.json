@@ -1,6 +1,6 @@
 {
   "name": "wippo-ledger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,12 +11,17 @@
     "db:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.699.0",
+    "@aws-sdk/s3-request-presigner": "^3.699.0",
+    "@neondatabase/auth": "latest",
+    "@prisma/client": "^5.22.0",
+    "lucide-react": "^0.460.0",
     "next": "14.2.18",
+    "posthog-js": "^1.194.0",
+    "posthog-node": "^4.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@prisma/client": "^5.22.0",
-    "zod": "^3.23.8",
-    "lucide-react": "^0.460.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

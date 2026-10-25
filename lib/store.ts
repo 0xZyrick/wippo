@@ -190,7 +190,36 @@ export const memory = {
     m.updates.push(row);
     return row;
   },
-  requestOtp(email: string) {
+  ensureUserByEmail(email: string, displayName?: string): SessionUser {
+    const m = mem();
+    const normalized = email.trim().toLowerCase();
+    let user = m.users.find((u) => u.email === normalized);
+    if (!user) {
+      const base =
+        normalized.split("@")[0].replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 24) ||
+        "builder";
+      let handle = base;
+      let n = 1;
+      while (m.users.some((u) => u.handle === handle)) {
+        handle = `${base}${n++}`;
+      }
+      user = {
+        id: `u_${Math.random().toString(36).slice(2, 10)}`,
+        email: normalized,
+        handle,
+        displayName: displayName || handle,
+      };
+      m.users.push(user);
+    }
+    return {
+      id: user.id,
+      handle: user.handle,
+      email: user.email,
+      displayName: user.displayName,
+    };
+  },
+
+    requestOtp(email: string) {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     mem().otps = mem().otps.filter((o) => o.email !== email);
     mem().otps.push({ email, code, expiresAt: Date.now() + 10 * 60 * 1000 });

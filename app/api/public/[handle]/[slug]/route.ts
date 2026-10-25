@@ -11,7 +11,7 @@ export async function GET(
 
   if (!hasDatabase) {
     const found = memory.getProjectByHandleSlug(handle, slug);
-    if (!found) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    if (!found) return NextResponse.json({ error: "This project could not be found." }, { status: 404 });
     return NextResponse.json({
       project: {
         id: found.project.id,
@@ -27,13 +27,13 @@ export async function GET(
   const user = await prisma.user.findFirst({
     where: { handle: { equals: handle, mode: "insensitive" } },
   });
-  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!user) return NextResponse.json({ error: "This project could not be found." }, { status: 404 });
 
   const project = await prisma.project.findFirst({
     where: { creatorId: user.id, slug },
     include: { updates: { orderBy: { number: "asc" } } },
   });
-  if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!project) return NextResponse.json({ error: "This project could not be found." }, { status: 404 });
 
   return NextResponse.json({
     project: {

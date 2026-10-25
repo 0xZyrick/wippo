@@ -1,22 +1,28 @@
 # Wippo Ledger
 
-Standalone app: private dashboard for project updates + public timeline URL.
+Private dashboard for project updates + a public timeline URL.
 
 ## Flow
 
 ```
 Landing (/)
-  ├── Admin → /auth → /dashboard   (session cookie; no re-auth while signed in)
-  └── Guest → /{handle}/{slug}     (no account; follow by email)
+  ├── Sign in → /auth → /dashboard   (session cookie)
+  └── Guest → /{handle}/{slug}       (public ledger; follow by email)
 ```
 
-## Run
+## Run locally
 
 ```bash
 npm install
+cp .env.example .env   # optional: set DATABASE_URL for Neon
 npm run dev
 ```
 
-Demo without database:
-- Guest: http://localhost:3000/alex/orbit-mesh
-- Admin: any email → use the shown demo OTP → dashboard
+Without `DATABASE_URL`, the app uses an in-memory store:
+
+- Example public page: http://localhost:3000/alex/orbit-mesh  
+- Admin: any email → use the shown dev OTP → dashboard  
+
+## Production
+
+See [PRODUCTION.md](./PRODUCTION.md) for Neon, Resend, and Vercel setup.

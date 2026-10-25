@@ -79,7 +79,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     try {
       const res = await fetch("/api/projects");
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load");
+      if (!res.ok) throw new Error(data.error || "Could not load. Please try again.");
       setProjects(data.projects || []);
       setSelectedId((id) => id || data.projects?.[0]?.id || null);
     } finally {
@@ -90,7 +90,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
   const loadUpdates = useCallback(async (projectId: string) => {
     const res = await fetch(`/api/projects/${projectId}`);
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed");
+    if (!res.ok) throw new Error(data.error || "Something went wrong. Please try again.");
     setUpdates(data.updates || []);
   }, []);
 
@@ -172,14 +172,14 @@ export function WorkspaceClient({ handle }: { handle: string }) {
         body: JSON.stringify({ title: newTitle.trim(), intent: "" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not create");
+      if (!res.ok) throw new Error(data.error || "Could not create the project. Please try again.");
       setNewTitle("");
       setShowNew(false);
       await loadProjects();
       setSelectedId(data.project.id);
       setShowComposer(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -200,12 +200,12 @@ export function WorkspaceClient({ handle }: { handle: string }) {
         body: JSON.stringify(patch),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not save");
+      if (!res.ok) throw new Error(data.error || "Could not save. Please try again.");
       await loadProjects();
       setToast("Saved");
       setTimeout(() => setToast(""), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -250,18 +250,35 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     setError("");
     setToast("");
     try {
-      // Media wire: first staged file → data URL (works offline / memory store).
-      // Production: upload to S3/R2/Cloudinary, then send the returned URL instead.
       let mediaUrl: string | undefined;
       let mediaKind: string | undefined;
       const first = staged[0];
       if (first) {
-        mediaUrl = await fileToDataUrl(first.file);
-        mediaKind = first.file.type.startsWith("video/")
-          ? "video"
-          : first.file.type.startsWith("audio/")
-            ? "audio"
-            : "image";
+        // Prefer Neon Object Storage when available; fall back to data URL.
+        try {
+          const form = new FormData();
+          form.append("file", first.file);
+          const up = await fetch("/api/upload", { method: "POST", body: form });
+          const upData = await up.json();
+          if (up.ok && upData.url) {
+            mediaUrl = upData.url;
+            mediaKind = upData.mediaKind;
+          } else {
+            mediaUrl = await fileToDataUrl(first.file);
+            mediaKind = first.file.type.startsWith("video/")
+              ? "video"
+              : first.file.type.startsWith("audio/")
+                ? "audio"
+                : "image";
+          }
+        } catch {
+          mediaUrl = await fileToDataUrl(first.file);
+          mediaKind = first.file.type.startsWith("video/")
+            ? "video"
+            : first.file.type.startsWith("audio/")
+              ? "audio"
+              : "image";
+        }
       }
 
       const res = await fetch(`/api/projects/${selectedId}/updates`, {
@@ -275,7 +292,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not commit");
+      if (!res.ok) throw new Error(data.error || "Could not publish that update. Please try again.");
       setHeadline("");
       setWhy("");
       staged.forEach((s) => URL.revokeObjectURL(s.preview));
@@ -294,7 +311,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
         setToast(`${updateLabel(n)} saved`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }

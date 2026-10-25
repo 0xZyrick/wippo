@@ -8,7 +8,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const why = typeof body.why === "string" ? body.why.trim() : "";
   const headline =
@@ -31,7 +31,7 @@ export async function POST(
   if (!hasDatabase) {
     const found = memory.getProjectById(params.id);
     if (!found || found.project.creatorId !== user.id) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
     }
     const update = memory.commitUpdate(params.id, {
       headline,
@@ -44,7 +44,7 @@ export async function POST(
 
   const project = await prisma.project.findUnique({ where: { id: params.id } });
   if (!project || project.creatorId !== user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
   }
   const last = await prisma.projectUpdate.findFirst({
     where: { projectId: params.id },

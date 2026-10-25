@@ -72,7 +72,7 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         `/api/public/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Not found");
+      if (!res.ok) throw new Error(data.error || "This project could not be found.");
       setProject(data.project);
       const list: UpdateDTO[] = data.updates || [];
       setUpdates(list);
@@ -86,7 +86,7 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
       // With updates: open update view (link opens update). Bare empty project → home
       setMobileTab(list.length ? "update" : "home");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -153,12 +153,12 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         body: JSON.stringify({ email: e }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed");
+      if (!res.ok) throw new Error(data.error || "Something went wrong. Please try again.");
       setFollowOpen(false);
       setFollowing(true);
       setFollowMsg("You'll be notified on new updates.");
     } catch (err) {
-      setFollowMsg(err instanceof Error ? err.message : "Failed");
+      setFollowMsg(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setFollowBusy(false);
     }

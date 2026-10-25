@@ -6,7 +6,7 @@ import { slugify } from "@/lib/slug";
 
 export async function GET() {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
 
   if (!hasDatabase) {
     return NextResponse.json({ projects: memory.listProjectsForUser(user.id) });
@@ -32,12 +32,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const intent = typeof body.intent === "string" ? body.intent.trim() : "";
   if (title.length < 2) {
-    return NextResponse.json({ error: "Title required" }, { status: 400 });
+    return NextResponse.json({ error: "Please add a project title." }, { status: 400 });
   }
 
   if (!hasDatabase) {
