@@ -32,7 +32,15 @@ type ProjectLinks = {
   other?: string;
 };
 
-export function WorkspaceClient({ handle }: { handle: string }) {
+export function WorkspaceClient({
+  handle,
+  email,
+  displayName: initialDisplayName,
+}: {
+  handle: string;
+  email: string;
+  displayName: string;
+}) {
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [updates, setUpdates] = useState<UpdateDTO[]>([]);
@@ -56,7 +64,14 @@ export function WorkspaceClient({ handle }: { handle: string }) {
   const [editingIntent, setEditingIntent] = useState(false);
   const [projectImagePreview, setProjectImagePreview] = useState<string | null>(null);
   const [links, setLinks] = useState<ProjectLinks>({});
+  const [draftLinks, setDraftLinks] = useState<ProjectLinks>({});
   const [editingLinks, setEditingLinks] = useState(false);
+  const [settingUp, setSettingUp] = useState(false);
+  const [profileName, setProfileName] = useState(initialDisplayName);
+  const [draftProfileName, setDraftProfileName] = useState(initialDisplayName);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [previewTick, setPreviewTick] = useState(0);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -73,6 +88,17 @@ export function WorkspaceClient({ handle }: { handle: string }) {
       typeof window !== "undefined" ? window.location.origin : "";
     return `${origin}/${handle}/${selected.slug}`;
   }, [selected, handle]);
+
+  /** Display-only short link (no protocol) */
+  const shortPublicUrl = useMemo(() => {
+    if (!selected) return "";
+    try {
+      const u = new URL(publicUrl);
+      return `${u.host}${u.pathname}`.replace(/\/$/, "");
+    } catch {
+      return `${handle}/${selected.slug}`;
+    }
+  }, [publicUrl, handle, selected]);
 
   const loadProjects = useCallback(async () => {
     setLoadingProjects(true);
@@ -109,12 +135,11 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     if (selected) {
       setEditTitle(selected.title);
       setEditIntent(selected.intent || "");
-      setProjectImagePreview(null);
+      setProjectImagePreview(selected.imageUrl || null);
       setEditingName(false);
       setEditingIntent(false);
-      // links may live on extended DTO later; keep local for now
-      const anyP = selected as ProjectDTO & { links?: ProjectLinks };
-      setLinks(anyP.links || {});
+      setLinks(selected.links || {});
+      setDraftLinks(selected.links || {});
       setEditingLinks(false);
     }
   }, [selected]);
@@ -164,6 +189,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     e.preventDefault();
     if (!newTitle.trim()) return;
     setBusy(true);
+    setSettingUp(true);
     setError("");
     try {
       const res = await fetch("/api/projects", {
@@ -182,6 +208,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
+      setSettingUp(false);
     }
   };
 
@@ -189,6 +216,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     title?: string;
     intent?: string;
     links?: ProjectLinks;
+    imageUrl?: string | null;
   }) => {
     if (!selectedId) return;
     setBusy(true);
@@ -201,7 +229,31 @@ export function WorkspaceClient({ handle }: { handle: string }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not save. Please try again.");
-      await loadProjects();
+      const proj = data.project;
+      if (proj) {
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.id === selectedId
+              ? {
+                  ...p,
+                  title: proj.title ?? p.title,
+                  intent: proj.intent ?? p.intent,
+                  slug: proj.slug ?? p.slug,
+                  imageUrl: proj.imageUrl !== undefined ? proj.imageUrl : p.imageUrl,
+                  links: proj.links !== undefined ? proj.links : p.links,
+                }
+              : p
+          )
+        );
+        if (proj.imageUrl !== undefined) {
+          setProjectImagePreview(proj.imageUrl || null);
+        }
+        if (proj.links !== undefined) {
+          setLinks(proj.links || {});
+          setDraftLinks(proj.links || {});
+        }
+      }
+      setPreviewTick((n) => n + 1);
       setToast("Saved");
       setTimeout(() => setToast(""), 2000);
     } catch (err) {
@@ -209,6 +261,101 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const saveProjectImage = async (file: File) => {
+    if (!selectedId) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file.");
+      return;
+    }
+    setSettingUp(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const up = await fetch("/api/upload", { method: "POST", body: form });
+      const upData = await up.json().catch(() => ({}));
+      let url: string | null = up.ok && upData.url ? upData.url : null;
+      if (!url) {
+        // Storage missing or failed — still persist a data URL so refresh keeps the logo
+        if (up.status === 503) {
+          setToast("Storage not configured; saving image in database for now.");
+        } else if (!up.ok) {
+          setToast(upData.error || "Upload failed; saving image in database for now.");
+        }
+        url = await fileToDataUrl(file);
+      }
+      setProjectImagePreview(url);
+      await persistProject({ imageUrl: url });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save project image.");
+    } finally {
+      setSettingUp(false);
+    }
+  };
+
+  const deleteProject = async () => {
+    if (!selectedId || !selected) return;
+    if (deleteConfirm !== selected.title) {
+      setError("Type the project name exactly to confirm delete.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/projects/${selectedId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete project.");
+      setProjects((prev) => prev.filter((p) => p.id !== selectedId));
+      setSelectedId(null);
+      setDeleteConfirm("");
+      setToast("Project deleted");
+      setTimeout(() => setToast(""), 2000);
+      setNav("projects");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete project.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveProfileName = async () => {
+    const name = draftProfileName.trim();
+    if (!name) {
+      setError("Please enter a name.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not save name.");
+      setProfileName(data.user?.displayName || name);
+      setEditingProfile(false);
+      setToast("Name updated");
+      setTimeout(() => setToast(""), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save name.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const commitLinks = async () => {
+    setLinks(draftLinks);
+    await persistProject({ links: draftLinks });
+    setEditingLinks(false);
+  };
+
+  const cancelLinks = () => {
+    setDraftLinks(links);
+    setEditingLinks(false);
   };
 
   const commitName = async () => {
@@ -230,10 +377,6 @@ export function WorkspaceClient({ handle }: { handle: string }) {
     setEditingIntent(false);
   };
 
-  const commitLinks = async () => {
-    await persistProject({ links });
-    setEditingLinks(false);
-  };
 
   const fileToDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -301,6 +444,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
       setShowComposer(false);
       await loadUpdates(selectedId);
       await loadProjects();
+      setPreviewTick((n) => n + 1);
       const n = data.update?.number;
       const path = selected ? `/${handle}/${selected.slug}?u=${n}` : "/";
       const link = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
@@ -331,6 +475,19 @@ export function WorkspaceClient({ handle }: { handle: string }) {
 
   return (
     <div className="flex min-h-[calc(100vh-0px)] bg-[#121212] text-[#fafafa]">
+      {settingUp && (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/60 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#181818] px-8 py-7">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/wippo-icon.png"
+              alt=""
+              className="h-10 w-10 object-contain animate-pulse"
+            />
+            <p className="text-[14px] font-medium text-white">Setting up your project…</p>
+          </div>
+        </div>
+      )}
       {/* Side nav — icon only, breathing room */}
       <nav className="hidden md:flex sticky top-0 h-screen w-[72px] shrink-0 flex-col items-center py-5 gap-5 ml-1">
         <div className="mb-1">
@@ -413,9 +570,140 @@ export function WorkspaceClient({ handle }: { handle: string }) {
             </div>
           )}
 
-          {!loadingProjects && nav !== "projects" && (
-            <div className="rounded-2xl border border-white/[0.08] bg-[#181818] p-10 text-center text-[14px] text-white/40">
-              {nav === "settings" ? "Account edit — coming soon." : "Help coming soon."}
+          {!loadingProjects && nav === "settings" && (
+            <div className="mx-auto max-w-lg space-y-6">
+              <h1 className="text-[18px] font-semibold">Settings</h1>
+              {error && (
+                <p className="text-[13px] text-red-400" role="alert">{error}</p>
+              )}
+              {toast && (
+                <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-[13px] text-emerald-300">
+                  {toast}
+                </p>
+              )}
+              <div className="rounded-2xl border border-white/[0.08] bg-[#181818] p-5 space-y-4">
+                <p className="text-[12px] text-[#B3B3B3]">Display name</p>
+                {editingProfile ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={draftProfileName}
+                      onChange={(e) => setDraftProfileName(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#121212] px-3 py-2 text-[15px] text-white outline-none focus:border-[#FF6B00]/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveProfileName()}
+                      className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/15 text-emerald-400"
+                      title="Save"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftProfileName(profileName);
+                        setEditingProfile(false);
+                      }}
+                      className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.06] text-[#B3B3B3]"
+                      title="Cancel"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftProfileName(profileName);
+                      setEditingProfile(true);
+                    }}
+                    className="flex w-full items-center justify-between text-left"
+                  >
+                    <span className="text-[15px] font-medium">{profileName}</span>
+                    <Pencil size={14} className="text-white/30" />
+                  </button>
+                )}
+                <div className="pt-2 border-t border-white/[0.06] space-y-1 text-[13px] text-[#B3B3B3]">
+                  <p>Handle: @{handle}</p>
+                  <p>Email: {email}</p>
+                </div>
+              </div>
+
+              {selected && (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5 space-y-3">
+                  <h2 className="text-[14px] font-semibold text-red-300">Delete project</h2>
+                  <p className="text-[13px] text-[#B3B3B3] leading-relaxed">
+                    This permanently deletes <span className="text-white font-medium">{selected.title}</span>,
+                    all of its updates, and follower emails. This cannot be undone.
+                  </p>
+                  <label className="block text-[12px] text-[#B3B3B3]">
+                    Type <span className="text-white font-medium">{selected.title}</span> to confirm
+                    <input
+                      value={deleteConfirm}
+                      onChange={(e) => setDeleteConfirm(e.target.value)}
+                      className="mt-1.5 w-full rounded-lg border border-red-500/30 bg-[#121212] px-3 py-2 text-[14px] text-white outline-none"
+                      placeholder={selected.title}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy || deleteConfirm !== selected.title}
+                    onClick={() => void deleteProject()}
+                    className="rounded-full bg-red-500/90 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40 hover:bg-red-500"
+                  >
+                    Delete forever
+                  </button>
+                </div>
+              )}
+              {!selected && (
+                <p className="text-[13px] text-[#6A6A6A]">
+                  Select a project under Projects to delete it from here.
+                </p>
+              )}
+            </div>
+          )}
+
+          {!loadingProjects && nav === "help" && (
+            <div className="mx-auto max-w-lg space-y-6">
+              <h1 className="text-[18px] font-semibold">Help</h1>
+              <ol className="space-y-4">
+                {[
+                  {
+                    t: "Create a project",
+                    b: "Open Projects, create a project, give it a clear title.",
+                  },
+                  {
+                    t: "Add a description and logo",
+                    b: "Click the title or description to edit. Click the circle image to upload a logo. Use the check mark to save, X to cancel.",
+                  },
+                  {
+                    t: "Add links",
+                    b: "Click the pencil next to Links, enter X and website, then the green check to save.",
+                  },
+                  {
+                    t: "Publish updates",
+                    b: "Use Add update. Write a short note (and optional media), then publish. Each update is numbered on your public page.",
+                  },
+                  {
+                    t: "Share your link",
+                    b: "Copy the short link above the preview. Anyone can open it without an account.",
+                  },
+                ].map((s, i) => (
+                  <li
+                    key={s.t}
+                    className="rounded-2xl border border-white/[0.08] bg-[#181818] p-4 flex gap-3"
+                  >
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FF6B00] text-[12px] font-bold">
+                      {i + 1}
+                    </span>
+                    <div>
+                      <p className="text-[14px] font-semibold">{s.t}</p>
+                      <p className="mt-1 text-[13px] text-[#B3B3B3] leading-relaxed">{s.b}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
 
@@ -562,10 +850,8 @@ export function WorkspaceClient({ handle }: { handle: string }) {
                           className="hidden"
                           onChange={(e) => {
                             const f = e.target.files?.[0];
-                            if (f) {
-                              if (projectImagePreview) URL.revokeObjectURL(projectImagePreview);
-                              setProjectImagePreview(URL.createObjectURL(f));
-                            }
+                            e.target.value = "";
+                            if (f) void saveProjectImage(f);
                           }}
                         />
                       </label>
@@ -681,27 +967,81 @@ export function WorkspaceClient({ handle }: { handle: string }) {
                           </button>
                         )}
 
-                        {/* Links — X + website only */}
+                        {/* Links — edit with save / cancel */}
                         <div className="mt-3 space-y-1.5">
-                          <p className="text-[11px] font-medium text-[#B3B3B3]">Links</p>
-                          <input
-                            value={links.x || ""}
-                            onChange={(e) =>
-                              setLinks((l) => ({ ...l, x: e.target.value }))
-                            }
-                            onBlur={() => void commitLinks()}
-                            placeholder="X / Twitter — @handle or URL"
-                            className="w-full rounded-xl bg-[#242424] px-3 py-2 text-[13px] text-[#FFFFFF] placeholder:text-[#6A6A6A] outline-none focus:ring-1 focus:ring-white/10"
-                          />
-                          <input
-                            value={links.website || ""}
-                            onChange={(e) =>
-                              setLinks((l) => ({ ...l, website: e.target.value }))
-                            }
-                            onBlur={() => void commitLinks()}
-                            placeholder="Website — https://…"
-                            className="w-full rounded-xl bg-[#242424] px-3 py-2 text-[13px] text-[#FFFFFF] placeholder:text-[#6A6A6A] outline-none focus:ring-1 focus:ring-white/10"
-                          />
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] font-medium text-[#B3B3B3]">Links</p>
+                            {editingLinks ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => void commitLinks()}
+                                  className="grid h-7 w-7 place-items-center rounded-full bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+                                  title="Save"
+                                >
+                                  <Check size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelLinks}
+                                  className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-[#B3B3B3] hover:text-white"
+                                  title="Cancel"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDraftLinks(links);
+                                  setEditingLinks(true);
+                                }}
+                                className="grid h-7 w-7 place-items-center rounded-full text-white/30 hover:text-white hover:bg-white/[0.06]"
+                                title="Edit links"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                          </div>
+                          {editingLinks ? (
+                            <>
+                              <input
+                                value={draftLinks.x || ""}
+                                onChange={(e) =>
+                                  setDraftLinks((l) => ({ ...l, x: e.target.value }))
+                                }
+                                placeholder="X / Twitter — @handle or URL"
+                                className="w-full rounded-xl border border-white/15 bg-[#121212] px-3 py-2 text-[13px] text-white placeholder:text-[#6A6A6A] outline-none focus:border-[#FF6B00]/40"
+                              />
+                              <input
+                                value={draftLinks.website || ""}
+                                onChange={(e) =>
+                                  setDraftLinks((l) => ({
+                                    ...l,
+                                    website: e.target.value,
+                                  }))
+                                }
+                                placeholder="Website — https://…"
+                                className="w-full rounded-xl border border-white/15 bg-[#121212] px-3 py-2 text-[13px] text-white placeholder:text-[#6A6A6A] outline-none focus:border-[#FF6B00]/40"
+                              />
+                            </>
+                          ) : (
+                            <div className="space-y-1 text-[13px] text-[#B3B3B3]">
+                              {links.x || links.website ? (
+                                <>
+                                  {links.x && (
+                                    <p className="truncate">X · {links.x}</p>
+                                  )}
+                                  {links.website && (
+                                    <p className="truncate">Web · {links.website}</p>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-[#6A6A6A]">Add X or website…</p>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#B3B3B3]">
@@ -1077,7 +1417,7 @@ export function WorkspaceClient({ handle }: { handle: string }) {
                     <div className="flex items-center gap-2">
                       <input
                         readOnly
-                        value={publicUrl}
+                        value={shortPublicUrl}
                         className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-[#242424] px-3 py-2 text-[12px] text-[#B3B3B3] outline-none"
                       />
                       <button
@@ -1109,10 +1449,14 @@ export function WorkspaceClient({ handle }: { handle: string }) {
                           <iframe
                             key={
                               selected.id +
+                              "-" +
+                              previewTick +
+                              "-" +
                               String(updates.length) +
                               (viewingUpdateId
-                                ? updates.find((u) => u.id === viewingUpdateId)
-                                    ?.number || ""
+                                ? "-" +
+                                  (updates.find((u) => u.id === viewingUpdateId)
+                                    ?.number || "")
                                 : "")
                             }
                             src={

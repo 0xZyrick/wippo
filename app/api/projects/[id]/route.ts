@@ -11,9 +11,6 @@ export async function GET(
   if (!hasDatabase) {
     const found = memory.getProjectById(params.id);
     if (!found) return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
-    if (user && found.project.creatorId !== user.id) {
-      // owner workspace only — public uses /api/public
-    }
     return NextResponse.json({
       project: found.project,
       updates: memory.listUpdates(params.id),
@@ -36,6 +33,8 @@ export async function GET(
       intent: project.intent,
       handle: project.creator.handle,
       createdAt: project.createdAt.toISOString(),
+      imageUrl: project.imageUrl,
+      links: project.links,
     },
     updates: project.updates.map((u) => ({
       id: u.id,
@@ -62,18 +61,26 @@ export async function PATCH(
     title?: string;
     intent?: string;
     links?: { x?: string; website?: string; other?: string };
+    imageUrl?: string | null;
   };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Something went wrong with that request. Please try again." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Something went wrong with that request. Please try again." },
+      { status: 400 }
+    );
   }
 
-  const title =
-    typeof body.title === "string" ? body.title.trim() : undefined;
-  const intent =
-    typeof body.intent === "string" ? body.intent.trim() : undefined;
+  const title = typeof body.title === "string" ? body.title.trim() : undefined;
+  const intent = typeof body.intent === "string" ? body.intent.trim() : undefined;
   const links = body.links;
+  const imageUrl =
+    body.imageUrl === null
+      ? null
+      : typeof body.imageUrl === "string"
+        ? body.imageUrl.trim() || null
+        : undefined;
 
   if (title !== undefined && !title) {
     return NextResponse.json({ error: "Please add a project title." }, { status: 400 });
@@ -84,6 +91,7 @@ export async function PATCH(
       title,
       intent,
       links,
+      imageUrl,
     });
     if (!updated) {
       return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
@@ -97,6 +105,7 @@ export async function PATCH(
         handle: user.handle,
         createdAt: updated.createdAt,
         links: updated.links,
+        imageUrl: updated.imageUrl,
       },
     });
   }
@@ -113,6 +122,8 @@ export async function PATCH(
     data: {
       ...(title !== undefined ? { title } : {}),
       ...(intent !== undefined ? { intent } : {}),
+      ...(links !== undefined ? { links } : {}),
+      ...(imageUrl !== undefined ? { imageUrl } : {}),
     },
     include: { creator: { select: { handle: true } } },
   });
@@ -125,6 +136,39 @@ export async function PATCH(
       intent: project.intent,
       handle: project.creator.handle,
       createdAt: project.createdAt.toISOString(),
+      imageUrl: project.imageUrl,
+      links: project.links,
     },
   });
+}
+
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
+  }
+
+  if (!hasDatabase) {
+    const found = memory.getProjectById(params.id);
+    if (!found || found.project.creatorId !== user.id) {
+      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+    }
+    const ok = memory.deleteProject(params.id, user.id);
+    if (!ok) {
+      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  const existing = await prisma.project.findUnique({ where: { id: params.id } });
+  if (!existing || existing.creatorId !== user.id) {
+    return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+  }
+
+  await prisma.project.delete({ where: { id: params.id } });
+  return NextResponse.json({ ok: true });
 }

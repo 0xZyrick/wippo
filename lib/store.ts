@@ -17,6 +17,7 @@ type ProjectRow = {
   slug: string;
   intent: string;
   links?: ProjectLinks;
+  imageUrl?: string | null;
   createdAt: string;
 };
 type UpdateRow = UpdateDTO & { projectId: string };
@@ -106,6 +107,7 @@ export const memory = {
           createdAt: p.createdAt,
           updateCount,
           links: p.links,
+          imageUrl: p.imageUrl,
         };
       });
   },
@@ -149,7 +151,7 @@ export const memory = {
   updateProject(
     projectId: string,
     userId: string,
-    data: { title?: string; intent?: string; links?: ProjectLinks }
+    data: { title?: string; intent?: string; links?: ProjectLinks; imageUrl?: string | null }
   ) {
     const m = mem();
     const p = m.projects.find((x) => x.id === projectId && x.creatorId === userId);
@@ -167,6 +169,9 @@ export const memory = {
         website: data.links.website?.trim() || undefined,
         other: data.links.other?.trim() || undefined,
       };
+    }
+    if (data.imageUrl !== undefined) {
+      p.imageUrl = data.imageUrl;
     }
     return p;
   },
@@ -263,7 +268,17 @@ export const memory = {
   clearSession(token: string) {
     mem().sessions.delete(token);
   },
-  subscribe(projectId: string, email: string) {
+  deleteProject(projectId: string, userId: string) {
+    const m = mem();
+    const p = m.projects.find((x) => x.id === projectId);
+    if (!p || p.creatorId !== userId) return false;
+    m.projects = m.projects.filter((x) => x.id !== projectId);
+    m.updates = m.updates.filter((u) => u.projectId !== projectId);
+    m.subscribers = m.subscribers.filter((s) => s.projectId !== projectId);
+    return true;
+  },
+
+    subscribe(projectId: string, email: string) {
     const m = mem();
     if (!m.subscribers.some((s) => s.projectId === projectId && s.email === email)) {
       m.subscribers.push({ projectId, email });
