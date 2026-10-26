@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { hasDatabase, prisma } from "@/lib/db";
 import { memory } from "@/lib/store";
+import { notifyFollowersOfUpdate } from "@/lib/notify";
 
 /** Accept one URL string or an array; store as JSON array string when multiple. */
 function normalizeMediaUrl(body: {
@@ -82,6 +83,28 @@ export async function POST(
     where: { id: params.id },
     data: { updatedAt: new Date() },
   });
+  try {
+    const [creator, subs] = await Promise.all([
+      prisma.user.findUnique({ where: { id: user.id }, select: { handle: true } }),
+      prisma.projectEmailSubscriber.findMany({
+        where: { projectId: params.id },
+        select: { email: true },
+      }),
+    ]);
+    if (creator && subs.length) {
+      void notifyFollowersOfUpdate({
+        emails: subs.map((s) => s.email),
+        projectTitle: project.title,
+        handle: creator.handle,
+        slug: project.slug,
+        headline: update.headline,
+        number: update.number,
+      });
+    }
+  } catch (e) {
+    console.error("follower notify failed", e);
+  }
+
   return NextResponse.json({
     update: {
       id: update.id,

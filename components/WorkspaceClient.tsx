@@ -85,6 +85,14 @@ export function WorkspaceClient({
   const [editHeadline, setEditHeadline] = useState("");
   const [editWhy, setEditWhy] = useState("");
   const [deleteUpdateId, setDeleteUpdateId] = useState<string | null>(null);
+  const [shareCard, setShareCard] = useState<null | {
+    kind: "project" | "update";
+    title: string;
+    subtitle: string;
+    url: string;
+    imageUrl?: string | null;
+    updates?: { headline: string; when: string }[];
+  }>(null);
 
   const selected = useMemo(
     () => projects.find((p) => p.id === selectedId) || null,
@@ -568,11 +576,45 @@ export function WorkspaceClient({
     const link = `${origin}/${userHandle}/${selected.slug}?u=${u.number}`;
     try {
       await navigator.clipboard.writeText(link);
-      setToast("Link copied");
-      setTimeout(() => setToast(""), 2000);
     } catch {
-      setError("Could not copy link.");
+      /* still show card */
     }
+    setShareCard({
+      kind: "update",
+      title: u.headline || updateLabel(u.number),
+      subtitle: selected.title,
+      url: link,
+      imageUrl: selected.imageUrl,
+    });
+  };
+
+  const copyProjectLink = async () => {
+    if (!selected) return;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+    const recent = [...updates]
+      .sort((a, b) => b.number - a.number)
+      .slice(0, 3)
+      .map((u) => ({
+        headline: u.headline || updateLabel(u.number),
+        when: new Date(u.createdAt).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        }),
+      }));
+    setShareCard({
+      kind: "project",
+      title: selected.title,
+      subtitle: `@${userHandle}`,
+      url: publicUrl,
+      imageUrl: selected.imageUrl || projectImagePreview,
+      updates: recent,
+    });
   };
 
   const navItems = [
@@ -865,10 +907,10 @@ export function WorkspaceClient({
                                 }}
                                 className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left hover:bg-white/[0.06] transition"
                               >
-                                {isSel && projectImagePreview ? (
+                                {p.imageUrl ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
-                                    src={projectImagePreview}
+                                    src={p.imageUrl}
                                     alt=""
                                     className="h-9 w-9 shrink-0 rounded-full object-cover"
                                   />
@@ -1171,7 +1213,7 @@ export function WorkspaceClient({
                   </div>
 
                   {/* Project journey — timeline style */}
-                  <div className="rounded-2xl bg-[#181818] overflow-hidden">
+                  <div className="rounded-2xl bg-[#181818] overflow-visible">
                     <div className="flex items-center justify-between px-5 py-4">
                       <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B3B3B3]">
                         Project journey
@@ -1528,11 +1570,11 @@ export function WorkspaceClient({
                                       <MoreHorizontal size={16} />
                                     </button>
                                     {updateMenuId === u.id && (
-                                      <div className="absolute right-0 top-9 z-30 min-w-[160px] overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] py-1 shadow-xl">
+                                      <div className="absolute right-0 bottom-full mb-1 z-[100] min-w-[168px] rounded-xl border border-white/10 bg-[#1c1c1c] py-1.5 shadow-2xl">
                                         <button
                                           type="button"
                                           onClick={() => openEditUpdate(u)}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-white hover:bg-white/[0.06]"
+                                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-white hover:bg-white/[0.06]"
                                         >
                                           <Pencil size={14} className="text-white/40" />
                                           Edit
@@ -1540,18 +1582,19 @@ export function WorkspaceClient({
                                         <button
                                           type="button"
                                           onClick={() => void copyUpdateLink(u)}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-white hover:bg-white/[0.06]"
+                                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-white hover:bg-white/[0.06]"
                                         >
                                           <Copy size={14} className="text-white/40" />
                                           Copy link
                                         </button>
+                                        <div className="my-1 h-px bg-white/[0.06]" />
                                         <button
                                           type="button"
                                           onClick={() => {
                                             setUpdateMenuId(null);
                                             setDeleteUpdateId(u.id);
                                           }}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-300 hover:bg-red-500/10"
+                                          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-red-300 hover:bg-red-500/10"
                                         >
                                           <Trash2 size={14} />
                                           Delete
@@ -1579,15 +1622,7 @@ export function WorkspaceClient({
                       />
                       <button
                         type="button"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(publicUrl);
-                            setLinkCopied(true);
-                            setTimeout(() => setLinkCopied(false), 2000);
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
+                        onClick={() => void copyProjectLink()}
                         className="shrink-0 rounded-xl bg-[#2A2A2A] px-3 py-2 text-[12px] font-semibold text-white hover:bg-[#333] transition"
                       >
                         {linkCopied ? "Copied" : "Copy link"}
@@ -1714,6 +1749,115 @@ export function WorkspaceClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* Share / OG-style preview card */}
+      {shareCard && (
+        <div
+          className="fixed inset-0 z-[95] grid place-items-center bg-black/70 px-4 backdrop-blur-sm"
+          onClick={() => setShareCard(null)}
+        >
+          <div
+            className="w-full max-w-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-3 text-center text-[13px] text-emerald-300">
+              Link copied · preview of how it can look when shared
+            </p>
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f1218] shadow-2xl">
+              <div
+                className="relative p-5 sm:p-6"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+                  backgroundSize: "24px 24px",
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {shareCard.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={shareCard.imageUrl}
+                        alt=""
+                        className="h-12 w-12 rounded-xl object-cover shrink-0"
+                      />
+                    ) : (
+                      <div className="grid h-12 w-12 place-items-center rounded-xl bg-[#FF6B00]/20 text-[#FF6B00] text-[16px] font-bold shrink-0">
+                        {shareCard.title.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-[18px] font-bold text-white truncate">
+                        {shareCard.title}
+                      </p>
+                      <p className="text-[13px] text-white/50 truncate">
+                        {shareCard.kind === "project"
+                          ? `By ${shareCard.subtitle}`
+                          : shareCard.subtitle}
+                      </p>
+                    </div>
+                  </div>
+                  {shareCard.kind === "project" && (
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        Building in Public
+                      </span>
+                      <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-white/60">
+                        {updates.length} milestone{updates.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {shareCard.kind === "project" && shareCard.updates && shareCard.updates.length > 0 && (
+                  <div className="mt-5 border-t border-white/10 pt-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40 mb-2.5">
+                      Latest updates
+                    </p>
+                    <ul className="space-y-2">
+                      {shareCard.updates.map((row, i) => (
+                        <li key={i} className="flex items-start justify-between gap-3 text-[13px]">
+                          <span className="text-white/85 line-clamp-1">{row.headline}</span>
+                          <span className="text-white/35 shrink-0 text-[12px]">{row.when}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {shareCard.kind === "update" && (
+                  <div className="mt-5 border-t border-white/10 pt-4">
+                    <p className="text-[13px] text-white/55">
+                      Open this update on the public project page.
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
+                  <p className="text-[12px] text-white/40 truncate min-w-0">
+                    {shareCard.url.replace(/^https?:\/\//, "")}
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/brand/wippo-icon.png"
+                    alt="Wippo"
+                    className="h-5 w-5 object-contain opacity-80 shrink-0"
+                  />
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShareCard(null)}
+              className="mt-4 w-full rounded-full border border-white/10 py-2.5 text-[13px] text-white/70 hover:text-white hover:bg-white/[0.04]"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}

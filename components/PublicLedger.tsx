@@ -498,15 +498,6 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         {/* Right journey */}
         <aside className="sticky top-0 h-screen border-l border-white/[0.05] bg-[#121212]/80 flex flex-col">
           <div className="px-5 pt-6 pb-4 border-b border-white/[0.05]">
-            <p className="text-[11px] text-[#B3B3B3]">Building something too?</p>
-            <Link
-              href="/auth"
-              className="mt-1 inline-block text-[12px] font-medium text-[#B3B3B3] hover:text-white transition"
-            >
-              Join Wippo
-            </Link>
-          </div>
-          <div className="px-5 pt-5 pb-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B3B3B3]">
               Project journey
             </h3>
@@ -723,6 +714,30 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
           </div>
         </div>
       )}
+
+      {/* Viral growth badge — bottom center mobile, top-right desktop */}
+      <div className="fixed bottom-6 left-1/2 z-50 w-[min(92%,22rem)] -translate-x-1/2 sm:bottom-auto sm:left-auto sm:right-6 sm:top-6 sm:translate-x-0">
+        <Link
+          href={`/auth?utm_source=badge&utm_medium=public_page&utm_campaign=join&utm_content=${encodeURIComponent(handle + "/" + slug)}`}
+          className="flex items-center justify-between gap-3 rounded-full border border-white/10 bg-[#121212]/80 px-4 py-3 shadow-xl backdrop-blur-md transition hover:scale-[1.02] hover:border-[#FF6B00]/40 hover:bg-[#181818]/95"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/wippo-icon.png" alt="" className="h-7 w-7 object-contain shrink-0" />
+            <div className="min-w-0 flex flex-col">
+              <span className="text-[12px] font-semibold text-white leading-none">
+                Building something too?
+              </span>
+              <span className="mt-1 text-[10px] text-white/45 leading-none">
+                Launch your living timeline
+              </span>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full bg-[#FF6B00] px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-[#FF6B00]/20">
+            Claim Yours Free
+          </span>
+        </Link>
+      </div>
     </div>
   );
 }
