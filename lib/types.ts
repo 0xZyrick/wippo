@@ -20,6 +20,7 @@ export type ProjectDTO = {
   createdAt: string;
   updateCount: number;
   links?: ProjectLinks;
+  imageUrl?: string | null;
 };
 
 export type UpdateDTO = {
