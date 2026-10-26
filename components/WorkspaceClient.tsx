@@ -33,7 +33,7 @@ type ProjectLinks = {
 };
 
 export function WorkspaceClient({
-  handle,
+  handle: initialHandle,
   email,
   displayName: initialDisplayName,
 }: {
@@ -41,6 +41,7 @@ export function WorkspaceClient({
   email: string;
   displayName: string;
 }) {
+  const [userHandle, setUserHandle] = useState(initialHandle);
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [updates, setUpdates] = useState<UpdateDTO[]>([]);
@@ -86,8 +87,8 @@ export function WorkspaceClient({
     if (!selected) return "";
     const origin =
       typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/${handle}/${selected.slug}`;
-  }, [selected, handle]);
+    return `${origin}/${userHandle}/${selected.slug}`;
+  }, [selected, userHandle]);
 
   /** Display-only short link (no protocol) */
   const shortPublicUrl = useMemo(() => {
@@ -96,9 +97,9 @@ export function WorkspaceClient({
       const u = new URL(publicUrl);
       return `${u.host}${u.pathname}`.replace(/\/$/, "");
     } catch {
-      return `${handle}/${selected.slug}`;
+      return `${userHandle}/${selected.slug}`;
     }
-  }, [publicUrl, handle, selected]);
+  }, [publicUrl, userHandle, selected]);
 
   const loadProjects = useCallback(async () => {
     setLoadingProjects(true);
@@ -337,8 +338,14 @@ export function WorkspaceClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not save name.");
       setProfileName(data.user?.displayName || name);
+      if (data.user?.handle) setUserHandle(data.user.handle);
       setEditingProfile(false);
-      setToast("Name updated");
+      setToast(
+        data.user?.handle
+          ? `Name updated · @${data.user.handle}`
+          : "Name updated"
+      );
+      setPreviewTick((n) => n + 1);
       setTimeout(() => setToast(""), 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save name.");
@@ -393,32 +400,30 @@ export function WorkspaceClient({
     setError("");
     setToast("");
     try {
-      let mediaUrl: string | undefined;
+      const mediaUrls: string[] = [];
       let mediaKind: string | undefined;
-      const first = staged[0];
-      if (first) {
-        // Prefer Neon Object Storage when available; fall back to data URL.
+      for (const item of staged) {
+        let url: string | null = null;
         try {
           const form = new FormData();
-          form.append("file", first.file);
+          form.append("file", item.file);
           const up = await fetch("/api/upload", { method: "POST", body: form });
           const upData = await up.json();
           if (up.ok && upData.url) {
-            mediaUrl = upData.url;
-            mediaKind = upData.mediaKind;
-          } else {
-            mediaUrl = await fileToDataUrl(first.file);
-            mediaKind = first.file.type.startsWith("video/")
-              ? "video"
-              : first.file.type.startsWith("audio/")
-                ? "audio"
-                : "image";
+            url = upData.url;
+            if (!mediaKind) mediaKind = upData.mediaKind;
           }
         } catch {
-          mediaUrl = await fileToDataUrl(first.file);
-          mediaKind = first.file.type.startsWith("video/")
+          /* fall through */
+        }
+        if (!url) {
+          url = await fileToDataUrl(item.file);
+        }
+        if (url) mediaUrls.push(url);
+        if (!mediaKind) {
+          mediaKind = item.file.type.startsWith("video/")
             ? "video"
-            : first.file.type.startsWith("audio/")
+            : item.file.type.startsWith("audio/")
               ? "audio"
               : "image";
         }
@@ -430,10 +435,11 @@ export function WorkspaceClient({
         body: JSON.stringify({
           headline: headline.trim() || undefined,
           why: why.trim(),
-          mediaUrl,
+          mediaUrls: mediaUrls.length ? mediaUrls : undefined,
           mediaKind,
         }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not publish that update. Please try again.");
       setHeadline("");
@@ -446,7 +452,7 @@ export function WorkspaceClient({
       await loadProjects();
       setPreviewTick((n) => n + 1);
       const n = data.update?.number;
-      const path = selected ? `/${handle}/${selected.slug}?u=${n}` : "/";
+      const path = selected ? `/${userHandle}/${selected.slug}?u=${n}` : "/";
       const link = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
       try {
         await navigator.clipboard.writeText(link);
@@ -625,7 +631,7 @@ export function WorkspaceClient({
                   </button>
                 )}
                 <div className="pt-2 border-t border-white/[0.06] space-y-1 text-[13px] text-[#B3B3B3]">
-                  <p>Handle: @{handle}</p>
+                  <p>Handle: @{userHandle}</p>
                   <p>Email: {email}</p>
                 </div>
               </div>
@@ -774,7 +780,7 @@ export function WorkspaceClient({
                                     {p.title}
                                   </span>
                                   <span className="block text-[11px] text-white/35 truncate">
-                                    /{handle}/{p.slug}
+                                    /{userHandle}/{p.slug}
                                   </span>
                                 </span>
                                 {on && (
@@ -1051,7 +1057,7 @@ export function WorkspaceClient({
                           </span>
                           <span>{updates.length} milestones</span>
                           <Link
-                            href={`/${handle}/${selected.slug}`}
+                            href={`/${userHandle}/${selected.slug}`}
                             className="inline-flex items-center gap-1 text-[#B3B3B3] hover:text-white transition"
                           >
                             Public page
@@ -1461,11 +1467,11 @@ export function WorkspaceClient({
                             }
                             src={
                               viewingUpdateId
-                                ? `/${handle}/${selected.slug}?u=${
+                                ? `/${userHandle}/${selected.slug}?u=${
                                     updates.find((u) => u.id === viewingUpdateId)
                                       ?.number || ""
                                   }`
-                                : `/${handle}/${selected.slug}`
+                                : `/${userHandle}/${selected.slug}`
                             }
                             title="Preview"
                             className="absolute inset-0 h-full w-full border-0 bg-[#121212]"

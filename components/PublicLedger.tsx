@@ -26,6 +26,8 @@ type ProjectInfo = {
   slug: string;
   intent: string;
   handle: string;
+  imageUrl?: string | null;
+  links?: { x?: string; website?: string; other?: string };
 };
 
 function isVideo(url?: string | null) {
@@ -113,7 +115,18 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
 
   const mediaList = useMemo(() => {
     if (!active?.mediaUrl) return [] as string[];
-    return [active.mediaUrl];
+    const raw = active.mediaUrl.trim();
+    if (raw.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((u): u is string => typeof u === "string" && u.length > 0);
+        }
+      } catch {
+        /* single url */
+      }
+    }
+    return [raw];
   }, [active]);
 
   useEffect(() => {
@@ -206,9 +219,18 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
 
   const IdentityBlock = () => (
     <div className="max-w-[220px]">
-      <div className="grid h-16 w-16 place-items-center rounded-full bg-white/[0.06] text-[20px] font-semibold text-[#FFFFFF]">
-        {project.title.slice(0, 1).toUpperCase()}
-      </div>
+      {project.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={project.imageUrl}
+            alt=""
+            className="h-16 w-16 rounded-full object-cover"
+          />
+        ) : (
+          <div className="grid h-16 w-16 place-items-center rounded-full bg-white/[0.06] text-[20px] font-semibold text-white">
+            {project.title.slice(0, 1).toUpperCase()}
+          </div>
+        )}
       <h1 className="mt-4 text-[1.25rem] font-semibold tracking-tight text-white leading-tight">
         {project.title}
       </h1>
@@ -222,6 +244,31 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         </p>
         <p>{updates.length} updates</p>
         <p className="text-[#B3B3B3]">@{project.handle}</p>
+
+        {(project.links?.x || project.links?.website) && (
+          <div className="mt-2 flex flex-col gap-1 text-[12px]">
+            {project.links?.x && (
+              <a
+                href={project.links.x.startsWith("http") ? project.links.x : `https://x.com/${project.links.x.replace(/^@/, "")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#B3B3B3] hover:text-white truncate"
+              >
+                X · {project.links.x}
+              </a>
+            )}
+            {project.links?.website && (
+              <a
+                href={project.links.website.startsWith("http") ? project.links.website : `https://${project.links.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#B3B3B3] hover:text-white truncate"
+              >
+                Web · {project.links.website}
+              </a>
+            )}
+          </div>
+        )}
       </div>
       <div className="mt-5 flex flex-col gap-2">
         <button
@@ -328,7 +375,8 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
                   <button
                     type="button"
                     onClick={() => setMediaIndex((i) => Math.max(0, i - 1))}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white/80"
+                    disabled={mediaIndex <= 0}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white/80 disabled:opacity-30"
                   >
                     <ChevronLeft size={18} />
                   </button>
@@ -337,10 +385,26 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
                     onClick={() =>
                       setMediaIndex((i) => Math.min(mediaList.length - 1, i + 1))
                     }
-                    className="absolute right-3 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white/80"
+                    disabled={mediaIndex >= mediaList.length - 1}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white/80 disabled:opacity-30"
                   >
                     <ChevronRight size={18} />
                   </button>
+                  <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                    {mediaList.map((_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setMediaIndex(i)}
+                        className={`h-1.5 rounded-full transition ${
+                          i === mediaIndex ? "w-4 bg-white" : "w-1.5 bg-white/40"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="absolute top-3 right-3 rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white/80">
+                    {mediaIndex + 1}/{mediaList.length}
+                  </span>
                 </>
               )}
             </div>
@@ -473,9 +537,18 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
                   />
                   <span className="text-[12px] font-medium text-[#B3B3B3]">wippo</span>
                 </div>
-                <div className="grid h-16 w-16 place-items-center rounded-2xl bg-white/[0.06] text-[22px] font-semibold text-white">
-                  {project.title.slice(0, 1).toUpperCase()}
-                </div>
+                {project.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={project.imageUrl}
+                    alt=""
+                    className="h-16 w-16 rounded-2xl object-cover"
+                  />
+                ) : (
+                  <div className="grid h-16 w-16 place-items-center rounded-2xl bg-white/[0.06] text-[22px] font-semibold text-white">
+                    {project.title.slice(0, 1).toUpperCase()}
+                  </div>
+                )}
                 <h1 className="mt-4 text-[1.75rem] font-semibold tracking-tight text-white">
                   {project.title}
                 </h1>
@@ -489,6 +562,30 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
                   </span>
                   <span>{updates.length} updates</span>
                   <span className="text-[#B3B3B3]">@{project.handle}</span>
+                  {(project.links?.x || project.links?.website) && (
+                    <div className="mt-2 flex flex-col gap-1 text-[12px]">
+                      {project.links?.x && (
+                        <a
+                          href={project.links.x.startsWith("http") ? project.links.x : `https://x.com/${project.links.x.replace(/^@/, "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#B3B3B3] hover:text-white truncate"
+                        >
+                          X · {project.links.x}
+                        </a>
+                      )}
+                      {project.links?.website && (
+                        <a
+                          href={project.links.website.startsWith("http") ? project.links.website : `https://${project.links.website}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#B3B3B3] hover:text-white truncate"
+                        >
+                          Web · {project.links.website}
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="mt-5 flex gap-2">
                   <button

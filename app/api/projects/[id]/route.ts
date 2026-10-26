@@ -74,7 +74,20 @@ export async function PATCH(
 
   const title = typeof body.title === "string" ? body.title.trim() : undefined;
   const intent = typeof body.intent === "string" ? body.intent.trim() : undefined;
-  const links = body.links;
+  const links =
+    body.links !== undefined
+      ? {
+          x: typeof body.links.x === "string" && body.links.x.trim() ? body.links.x.trim() : undefined,
+          website:
+            typeof body.links.website === "string" && body.links.website.trim()
+              ? body.links.website.trim()
+              : undefined,
+          other:
+            typeof body.links.other === "string" && body.links.other.trim()
+              ? body.links.other.trim()
+              : undefined,
+        }
+      : undefined;
   const imageUrl =
     body.imageUrl === null
       ? null

@@ -3,6 +3,24 @@ import { getSessionUser } from "@/lib/session";
 import { hasDatabase, prisma } from "@/lib/db";
 import { memory } from "@/lib/store";
 
+/** Accept one URL string or an array; store as JSON array string when multiple. */
+function normalizeMediaUrl(body: {
+  mediaUrl?: unknown;
+  mediaUrls?: unknown;
+}): string | undefined {
+  if (Array.isArray(body.mediaUrls)) {
+    const urls = body.mediaUrls
+      .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+      .map((u) => u.trim());
+    if (!urls.length) return undefined;
+    return urls.length === 1 ? urls[0] : JSON.stringify(urls);
+  }
+  if (typeof body.mediaUrl === "string" && body.mediaUrl.trim()) {
+    return body.mediaUrl.trim();
+  }
+  return undefined;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -15,14 +33,13 @@ export async function POST(
     typeof body.headline === "string" && body.headline.trim()
       ? body.headline.trim()
       : "Update";
-  const mediaUrl =
-    typeof body.mediaUrl === "string" && body.mediaUrl.trim()
-      ? body.mediaUrl.trim()
-      : undefined;
+  const mediaUrl = normalizeMediaUrl(body);
   const mediaKind =
     typeof body.mediaKind === "string" && body.mediaKind.trim()
       ? body.mediaKind.trim()
-      : undefined;
+      : mediaUrl
+        ? "image"
+        : undefined;
 
   if (why.length < 3) {
     return NextResponse.json({ error: "Add a short note on why this matters." }, { status: 400 });
