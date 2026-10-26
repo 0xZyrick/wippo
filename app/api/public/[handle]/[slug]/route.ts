@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasDatabase, prisma } from "@/lib/db";
 import { memory } from "@/lib/store";
 
+function serializeLinks(links: unknown): { x?: string; website?: string; other?: string } | undefined {
+  if (!links || typeof links !== "object") return undefined;
+  const o = links as Record<string, unknown>;
+  const out: { x?: string; website?: string; other?: string } = {};
+  if (typeof o.x === "string" && o.x) out.x = o.x;
+  if (typeof o.website === "string" && o.website) out.website = o.website;
+  if (typeof o.other === "string" && o.other) out.other = o.other;
+  return Object.keys(out).length ? out : undefined;
+}
+
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { handle: string; slug: string } }
@@ -19,6 +30,8 @@ export async function GET(
         slug: found.project.slug,
         intent: found.project.intent,
         handle: found.handle,
+        imageUrl: found.project.imageUrl,
+        links: serializeLinks(found.project.links),
       },
       updates: memory.listUpdates(found.project.id),
     });
@@ -42,6 +55,8 @@ export async function GET(
       slug: project.slug,
       intent: project.intent,
       handle: user.handle,
+      imageUrl: project.imageUrl,
+      links: serializeLinks(project.links),
     },
     updates: project.updates.map((u) => ({
       id: u.id,

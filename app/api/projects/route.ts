@@ -4,6 +4,16 @@ import { hasDatabase, prisma } from "@/lib/db";
 import { memory } from "@/lib/store";
 import { slugify } from "@/lib/slug";
 
+function serializeLinks(links: unknown): { x?: string; website?: string; other?: string } | undefined {
+  if (!links || typeof links !== "object") return undefined;
+  const o = links as Record<string, unknown>;
+  const out: { x?: string; website?: string; other?: string } = {};
+  if (typeof o.x === "string" && o.x) out.x = o.x;
+  if (typeof o.website === "string" && o.website) out.website = o.website;
+  if (typeof o.other === "string" && o.other) out.other = o.other;
+  return Object.keys(out).length ? out : undefined;
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
@@ -26,6 +36,8 @@ export async function GET() {
       handle: p.creator.handle,
       createdAt: p.createdAt.toISOString(),
       updateCount: p._count.updates,
+      imageUrl: p.imageUrl ?? null,
+      links: serializeLinks(p.links),
     })),
   });
 }
@@ -51,6 +63,8 @@ export async function POST(req: NextRequest) {
         handle: user.handle,
         createdAt: row.createdAt,
         updateCount: 0,
+        imageUrl: null,
+        links: undefined,
       },
     });
   }
@@ -72,6 +86,8 @@ export async function POST(req: NextRequest) {
       handle: user.handle,
       createdAt: project.createdAt.toISOString(),
       updateCount: 0,
+      imageUrl: null,
+      links: undefined,
     },
   });
 }

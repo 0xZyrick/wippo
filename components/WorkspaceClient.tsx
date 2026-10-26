@@ -20,6 +20,9 @@ import {
   Globe,
   ChevronDown,
   Check,
+  MoreHorizontal,
+  Trash2,
+  Copy,
 } from "lucide-react";
 import { updateLabel } from "@/lib/slug";
 import type { ProjectDTO, UpdateDTO } from "@/lib/types";
@@ -77,6 +80,11 @@ export function WorkspaceClient({
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [linkCopied, setLinkCopied] = useState(false);
   const [viewingUpdateId, setViewingUpdateId] = useState<string | null>(null);
+  const [updateMenuId, setUpdateMenuId] = useState<string | null>(null);
+  const [editingUpdate, setEditingUpdate] = useState<UpdateDTO | null>(null);
+  const [editHeadline, setEditHeadline] = useState("");
+  const [editWhy, setEditWhy] = useState("");
+  const [deleteUpdateId, setDeleteUpdateId] = useState<string | null>(null);
 
   const selected = useMemo(
     () => projects.find((p) => p.id === selectedId) || null,
@@ -219,7 +227,7 @@ export function WorkspaceClient({
     links?: ProjectLinks;
     imageUrl?: string | null;
   }) => {
-    if (!selectedId) return;
+    if (!selectedId) return false;
     setBusy(true);
     setError("");
     try {
@@ -230,7 +238,11 @@ export function WorkspaceClient({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not save. Please try again.");
-      const proj = data.project;
+
+      // Re-read from server so refresh matches what we show
+      const verify = await fetch(`/api/projects/${selectedId}`);
+      const verified = await verify.json();
+      const proj = verified.project || data.project;
       if (proj) {
         setProjects((prev) =>
           prev.map((p) =>
@@ -240,25 +252,23 @@ export function WorkspaceClient({
                   title: proj.title ?? p.title,
                   intent: proj.intent ?? p.intent,
                   slug: proj.slug ?? p.slug,
-                  imageUrl: proj.imageUrl !== undefined ? proj.imageUrl : p.imageUrl,
-                  links: proj.links !== undefined ? proj.links : p.links,
+                  imageUrl: proj.imageUrl ?? null,
+                  links: proj.links || undefined,
                 }
               : p
           )
         );
-        if (proj.imageUrl !== undefined) {
-          setProjectImagePreview(proj.imageUrl || null);
-        }
-        if (proj.links !== undefined) {
-          setLinks(proj.links || {});
-          setDraftLinks(proj.links || {});
-        }
+        setProjectImagePreview(proj.imageUrl || null);
+        setLinks(proj.links || {});
+        setDraftLinks(proj.links || {});
       }
       setPreviewTick((n) => n + 1);
       setToast("Saved");
       setTimeout(() => setToast(""), 2000);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -277,18 +287,26 @@ export function WorkspaceClient({
       form.append("file", file);
       const up = await fetch("/api/upload", { method: "POST", body: form });
       const upData = await up.json().catch(() => ({}));
-      let url: string | null = up.ok && upData.url ? upData.url : null;
+      let url: string | null = up.ok && upData.url ? String(upData.url) : null;
       if (!url) {
-        // Storage missing or failed — still persist a data URL so refresh keeps the logo
         if (up.status === 503) {
-          setToast("Storage not configured; saving image in database for now.");
-        } else if (!up.ok) {
-          setToast(upData.error || "Upload failed; saving image in database for now.");
+          throw new Error(
+            "File storage is not configured on the server (AWS / Neon bucket). Logo cannot be saved until storage env vars are set."
+          );
         }
-        url = await fileToDataUrl(file);
+        // small fallback only
+        const dataUrl = await fileToDataUrl(file);
+        if (dataUrl.length > 500_000) {
+          throw new Error(
+            "Image is too large without cloud storage. Configure Neon Object Storage on Vercel, or use a smaller image."
+          );
+        }
+        url = dataUrl;
+        setToast("Saved in database (storage upload failed).");
       }
       setProjectImagePreview(url);
-      await persistProject({ imageUrl: url });
+      const ok = await persistProject({ imageUrl: url });
+      if (!ok) throw new Error("Logo did not save. Try again.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save project image.");
     } finally {
@@ -355,9 +373,11 @@ export function WorkspaceClient({
   };
 
   const commitLinks = async () => {
-    setLinks(draftLinks);
-    await persistProject({ links: draftLinks });
-    setEditingLinks(false);
+    const ok = await persistProject({ links: draftLinks });
+    if (ok) {
+      setLinks(draftLinks);
+      setEditingLinks(false);
+    }
   };
 
   const cancelLinks = () => {
@@ -472,6 +492,88 @@ export function WorkspaceClient({
     () => [...updates].sort((a, b) => a.number - b.number),
     [updates]
   );
+
+
+  const openEditUpdate = (u: UpdateDTO) => {
+    setUpdateMenuId(null);
+    setEditingUpdate(u);
+    setEditHeadline(u.headline || "");
+    setEditWhy(u.why || "");
+  };
+
+  const saveEditUpdate = async () => {
+    if (!selectedId || !editingUpdate) return;
+    if (editWhy.trim().length < 3) {
+      setError("Add a short note on why this matters.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/projects/${selectedId}/updates/${editingUpdate.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            headline: editHeadline.trim() || "Update",
+            why: editWhy.trim(),
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not save update.");
+      setUpdates((prev) =>
+        prev.map((u) => (u.id === editingUpdate.id ? { ...u, ...data.update } : u))
+      );
+      setEditingUpdate(null);
+      setPreviewTick((n) => n + 1);
+      setToast("Update saved");
+      setTimeout(() => setToast(""), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save update.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDeleteUpdate = async () => {
+    if (!selectedId || !deleteUpdateId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/projects/${selectedId}/updates/${deleteUpdateId}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete update.");
+      setUpdates((prev) => prev.filter((u) => u.id !== deleteUpdateId));
+      if (viewingUpdateId === deleteUpdateId) setViewingUpdateId(null);
+      setDeleteUpdateId(null);
+      setPreviewTick((n) => n + 1);
+      setToast("Update deleted");
+      setTimeout(() => setToast(""), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete update.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyUpdateLink = async (u: UpdateDTO) => {
+    setUpdateMenuId(null);
+    if (!selected) return;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const link = `${origin}/${userHandle}/${selected.slug}?u=${u.number}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setToast("Link copied");
+      setTimeout(() => setToast(""), 2000);
+    } catch {
+      setError("Could not copy link.");
+    }
+  };
 
   const navItems = [
     { id: "projects" as const, label: "Projects", Icon: FolderKanban },
@@ -1388,27 +1490,76 @@ export function WorkspaceClient({
                               aria-hidden
                             />
                             {[...chronological].reverse().map((u) => (
-                              <li key={u.id} className="mb-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowComposer(false);
-                                    setViewingUpdateId(u.id);
-                                  }}
-                                  className="relative flex w-full gap-3 rounded-xl px-2.5 py-2.5 text-left transition hover:bg-[#242424]"
-                                >
-                                  <span className="relative z-[1] mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-                                    <span className="h-2.5 w-2.5 rounded-full bg-[#FF6B00] ring-4 ring-[#FF6B00]/20" />
-                                  </span>
-                                  <span className="min-w-0">
-                                    <span className="block text-[12px] font-semibold text-[#FF6B00]">
-                                      {updateLabel(u.number)}
+                              <li key={u.id} className="mb-0.5 relative">
+                                <div className="relative flex w-full items-start gap-1 rounded-xl px-1 py-1 hover:bg-[#242424]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowComposer(false);
+                                      setViewingUpdateId(u.id);
+                                      setUpdateMenuId(null);
+                                    }}
+                                    className="relative flex min-w-0 flex-1 gap-3 rounded-xl px-2.5 py-2.5 text-left"
+                                  >
+                                    <span className="relative z-[1] mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center">
+                                      <span className="h-2.5 w-2.5 rounded-full bg-[#FF6B00] ring-4 ring-[#FF6B00]/20" />
                                     </span>
-                                    <span className="mt-0.5 block text-[13px] text-[#FFFFFF] leading-snug line-clamp-2">
-                                      {u.headline || "Untitled"}
+                                    <span className="min-w-0">
+                                      <span className="block text-[12px] font-semibold text-[#FF6B00]">
+                                        {updateLabel(u.number)}
+                                      </span>
+                                      <span className="mt-0.5 block text-[13px] text-[#FFFFFF] leading-snug line-clamp-2">
+                                        {u.headline || "Untitled"}
+                                      </span>
                                     </span>
-                                  </span>
-                                </button>
+                                  </button>
+                                  <div className="relative shrink-0 pr-1 pt-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setUpdateMenuId((id) =>
+                                          id === u.id ? null : u.id
+                                        );
+                                      }}
+                                      className="grid h-8 w-8 place-items-center rounded-full text-white/30 hover:bg-white/[0.08] hover:text-white"
+                                      title="Update menu"
+                                    >
+                                      <MoreHorizontal size={16} />
+                                    </button>
+                                    {updateMenuId === u.id && (
+                                      <div className="absolute right-0 top-9 z-30 min-w-[160px] overflow-hidden rounded-xl border border-white/10 bg-[#1a1a1a] py-1 shadow-xl">
+                                        <button
+                                          type="button"
+                                          onClick={() => openEditUpdate(u)}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-white hover:bg-white/[0.06]"
+                                        >
+                                          <Pencil size={14} className="text-white/40" />
+                                          Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void copyUpdateLink(u)}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-white hover:bg-white/[0.06]"
+                                        >
+                                          <Copy size={14} className="text-white/40" />
+                                          Copy link
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setUpdateMenuId(null);
+                                            setDeleteUpdateId(u.id);
+                                          }}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-300 hover:bg-red-500/10"
+                                        >
+                                          <Trash2 size={14} />
+                                          Delete
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
                               </li>
                             ))}
                           </ol>
@@ -1563,6 +1714,78 @@ export function WorkspaceClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit update modal */}
+      {editingUpdate && (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
+            <h3 className="text-[15px] font-semibold">Edit update</h3>
+            <label className="mt-4 block text-[12px] text-[#B3B3B3]">
+              Title
+              <input
+                value={editHeadline}
+                onChange={(e) => setEditHeadline(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#121212] px-3 py-2.5 text-[14px] text-white outline-none focus:border-[#FF6B00]/40"
+              />
+            </label>
+            <label className="mt-3 block text-[12px] text-[#B3B3B3]">
+              Note
+              <textarea
+                value={editWhy}
+                onChange={(e) => setEditWhy(e.target.value)}
+                rows={4}
+                className="mt-1.5 w-full resize-none rounded-xl border border-white/10 bg-[#121212] px-3 py-2.5 text-[14px] text-white outline-none focus:border-[#FF6B00]/40"
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingUpdate(null)}
+                className="rounded-full px-4 py-2 text-[13px] text-[#B3B3B3] hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void saveEditUpdate()}
+                className="rounded-full bg-[#FF6B00] px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete update confirm */}
+      {deleteUpdateId && (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-red-500/20 bg-[#181818] p-5 shadow-2xl">
+            <h3 className="text-[15px] font-semibold text-red-300">Delete this update?</h3>
+            <p className="mt-2 text-[13px] text-[#B3B3B3] leading-relaxed">
+              This permanently removes the update from your project and public page. This cannot be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteUpdateId(null)}
+                className="rounded-full px-4 py-2 text-[13px] text-[#B3B3B3] hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void confirmDeleteUpdate()}
+                className="rounded-full bg-red-500/90 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+              >
+                Delete forever
+              </button>
+            </div>
           </div>
         </div>
       )}
