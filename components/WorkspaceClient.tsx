@@ -1437,23 +1437,23 @@ export function WorkspaceClient({
                               <div>
                                 {/* Compact swipe stage */}
                                 <div className="relative">
-                                  <div className="relative h-44 overflow-hidden rounded-xl bg-[#0a0a0a] border border-white/[0.06]">
+                                  <div className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-transparent">
                                     {activeStage?.file.type.startsWith("video/") ? (
                                       <video
                                         key={activeStage.id}
                                         src={activeStage.preview}
                                         controls
-                                        className="h-full w-full object-contain"
+                                        className="w-full max-h-72 rounded-xl bg-black object-contain"
                                       />
                                     ) : activeStage?.file.type.startsWith("image/") ? (
                                       // eslint-disable-next-line @next/next/no-img-element
                                       <img
                                         src={activeStage.preview}
                                         alt=""
-                                        className="h-full w-full object-contain"
+                                        className="block w-full h-auto max-h-80 object-contain rounded-xl"
                                       />
                                     ) : (
-                                      <div className="grid h-full place-items-center text-[12px] text-white/40">
+                                      <div className="grid min-h-[6rem] place-items-center text-[12px] text-white/40 py-8">
                                         {activeStage?.file.name}
                                       </div>
                                     )}
@@ -1894,92 +1894,91 @@ export function WorkspaceClient({
       )}
 
 
-      {/* Share card — same layout for project & update */}
+      {/* Share card — dark, roomy, same for project & update */}
       {shareCard && (
         <div
-          className="fixed inset-0 z-[95] grid place-items-center bg-black/70 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[95] grid place-items-center bg-black/75 px-4 backdrop-blur-sm"
           onClick={() => setShareCard(null)}
         >
           <div
-            className="relative w-full max-w-md"
+            className="relative w-full max-w-lg"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               onClick={() => setShareCard(null)}
-              className="absolute -right-1 -top-1 z-10 grid h-8 w-8 place-items-center rounded-full bg-[#242424] text-white/70 hover:text-white border border-white/10"
+              className="absolute -right-2 -top-2 z-10 grid h-9 w-9 place-items-center rounded-full bg-[#242424] text-white/70 hover:text-white border border-white/10"
               aria-label="Close"
             >
-              <X size={14} />
+              <X size={15} />
             </button>
-            <p className="mb-3 text-center text-[12px] text-emerald-400/90">
+            <p className="mb-4 text-center text-[13px] text-emerald-400">
               Link copied
             </p>
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl flex flex-col sm:flex-row min-h-[168px]">
+            <div className="overflow-hidden rounded-2xl border border-white/[0.1] bg-[#181818] shadow-2xl flex flex-col sm:flex-row min-h-[200px]">
               {/* Left visual */}
-              <div className="relative sm:w-[40%] min-h-[148px] bg-[#141414] shrink-0 flex items-center justify-center p-4">
+              <div className="relative sm:w-[44%] min-h-[180px] bg-[#121212] shrink-0 flex items-center justify-center p-6 border-b sm:border-b-0 sm:border-r border-white/[0.06]">
                 {shareCard.kind === "project" ? (
                   shareCard.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={shareCard.imageUrl}
                       alt=""
-                      className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10 shadow-lg"
+                      className="h-28 w-28 rounded-full object-cover ring-2 ring-white/10 shadow-xl"
                     />
                   ) : (
-                    <div className="grid h-20 w-20 place-items-center rounded-full bg-[#FF6B00]/20 text-[#FF6B00] text-[28px] font-bold ring-2 ring-white/10">
+                    <div className="grid h-28 w-28 place-items-center rounded-full bg-[#FF6B00]/20 text-[#FF6B00] text-[36px] font-bold ring-2 ring-white/10">
                       {shareCard.title.slice(0, 1).toUpperCase()}
                     </div>
                   )
                 ) : shareCard.imageUrl ? (
-                  // Update: show that update's media (contain, not full bleed circle)
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={shareCard.imageUrl}
                     alt=""
-                    className="max-h-[120px] max-w-full rounded-xl object-contain"
+                    className="max-h-[150px] max-w-full rounded-xl object-contain"
                   />
                 ) : (
-                  <div className="grid h-20 w-20 place-items-center rounded-2xl bg-white/5">
+                  <div className="grid h-24 w-24 place-items-center rounded-2xl bg-white/[0.04] border border-white/[0.08]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src="/brand/wippo-icon.png"
                       alt=""
-                      className="h-10 w-10 object-contain opacity-90"
+                      className="h-12 w-12 object-contain"
                     />
                   </div>
                 )}
               </div>
-              {/* Right info — same for both */}
-              <div className="flex flex-1 flex-col justify-between p-4 sm:p-5 bg-white text-[#121212]">
+              {/* Right info */}
+              <div className="flex flex-1 flex-col justify-between p-5 sm:p-6 text-white">
                 <div>
-                  <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className="flex items-center gap-2 mb-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src="/brand/wippo-icon.png"
                       alt=""
-                      className="h-4 w-4 object-contain"
+                      className="h-5 w-5 object-contain"
                     />
-                    <span className="text-[11px] font-semibold text-[#6a6a6a]">
+                    <span className="text-[12px] font-semibold text-white/50">
                       Wippo
                     </span>
                   </div>
-                  <h3 className="text-[16px] font-semibold leading-snug line-clamp-2">
+                  <h3 className="text-[20px] font-semibold leading-snug tracking-tight line-clamp-2">
                     {shareCard.title}
                   </h3>
-                  <p className="mt-1.5 text-[13px] text-[#6a6a6a] line-clamp-2">
+                  <p className="mt-2 text-[14px] text-white/50 line-clamp-2">
                     {shareCard.kind === "project"
                       ? `Follow ${shareCard.subtitle} building in public`
                       : `Update on ${shareCard.subtitle}`}
                   </p>
                 </div>
-                <div className="mt-4 flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-[#9a9a9a] truncate min-w-0">
+                <div className="mt-6 flex items-center justify-between gap-3">
+                  <p className="text-[12px] text-white/35 truncate min-w-0">
                     {shareCard.url
                       .replace(/^https?:\/\//, "")
                       .replace(/^www\./, "")}
                   </p>
-                  <span className="shrink-0 rounded-full bg-[#FF6B00] px-3 py-1.5 text-[11px] font-bold text-white">
+                  <span className="shrink-0 rounded-full bg-[#FF6B00] px-4 py-2 text-[12px] font-bold text-white">
                     Open
                   </span>
                 </div>

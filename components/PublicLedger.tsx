@@ -45,8 +45,8 @@ function accentFromTitle(title: string) {
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0;
   const hue = h % 360;
   return {
-    wash: `hsla(${hue}, 28%, 22%, 0.22)`,
-    washEdge: `hsla(${hue}, 24%, 18%, 0)`,
+    wash: `hsla(${hue}, 36%, 28%, 0.42)`,
+    washEdge: `hsla(${hue}, 30%, 18%, 0.08)`,
   };
 }
 
@@ -65,6 +65,27 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
   const [shared, setShared] = useState(false);
   /** mobile: home | update — deep links land on update when ?u= is present */
   const [mobileTab, setMobileTab] = useState<"home" | "update">("update");
+  const [badgeHidden, setBadgeHidden] = useState(false);
+
+  useEffect(() => {
+    let last = 0;
+    let ticking = false;
+    const onScroll = () => {
+      const y = window.scrollY || document.documentElement.scrollTop;
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          // hide when scrolling down past a bit; show near top or scrolling up
+          if (y > last && y > 80) setBadgeHidden(true);
+          else setBadgeHidden(false);
+          last = y;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -480,7 +501,7 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         <aside
           className="relative sticky top-0 h-screen flex flex-col justify-center px-6 border-r border-white/[0.05] overflow-hidden"
           style={{
-            background: `linear-gradient(165deg, ${accent.wash} 0%, ${accent.washEdge} 55%, transparent 100%)`,
+            background: `linear-gradient(165deg, ${accent.wash} 0%, ${accent.wash} 35%, ${accent.washEdge} 70%, transparent 100%)`,
           }}
         >
           <div className="relative z-[1]">
@@ -509,7 +530,7 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
       </div>
 
       {/* ════════════ MOBILE ════════════ */}
-      <div className="lg:hidden min-h-screen flex flex-col pb-16">
+      <div className="lg:hidden min-h-screen flex flex-col pb-28">
         {mobileTab === "home" && (
           <div className="flex-1">
             <div
@@ -715,32 +736,38 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         </div>
       )}
 
-      {/* Mobile only — compact bottom CTA (above tab bar) */}
-      <div className="fixed bottom-20 left-1/2 z-50 w-[min(92%,20rem)] -translate-x-1/2 lg:hidden">
+      {/* Mobile — single-line pill; hides while scrolling down */}
+      <div
+        className={`fixed bottom-20 left-1/2 z-50 w-[min(94%,20rem)] -translate-x-1/2 transition-all duration-300 lg:hidden ${
+          badgeHidden
+            ? "translate-y-24 opacity-0 pointer-events-none"
+            : "translate-y-0 opacity-100"
+        }`}
+      >
         <Link
           href={`/auth?utm_source=badge&utm_medium=public_page&utm_campaign=join&utm_content=${encodeURIComponent(handle + "/" + slug)}`}
-          className="flex items-center justify-between gap-2 rounded-full border border-white/10 bg-[#121212]/90 px-3.5 py-2.5 shadow-xl backdrop-blur-md"
+          className="flex items-center gap-2 rounded-full border border-white/10 bg-[#121212]/95 px-3 py-2 shadow-xl backdrop-blur-md"
         >
-          <div className="flex items-center gap-2 min-w-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/wippo-icon.png" alt="" className="h-6 w-6 object-contain shrink-0" />
-            <span className="text-[12px] font-semibold text-white truncate">Build in public</span>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/wippo-icon.png" alt="" className="h-5 w-5 object-contain shrink-0" />
+          <span className="flex-1 text-[12px] font-medium text-white/85 truncate">
+            Document on Wippo
+          </span>
           <span className="shrink-0 rounded-full bg-[#FF6B00] px-2.5 py-1 text-[11px] font-bold text-white">
-            Free
+            Join free
           </span>
         </Link>
       </div>
 
-      {/* Desktop — slim top-right chip, does not cover journey */}
-      <div className="pointer-events-none fixed right-5 top-5 z-40 hidden lg:block">
+      {/* Desktop — permanent bottom-right, single line */}
+      <div className="pointer-events-none fixed bottom-6 right-6 z-40 hidden lg:block">
         <Link
           href={`/auth?utm_source=badge&utm_medium=public_page&utm_campaign=join&utm_content=${encodeURIComponent(handle + "/" + slug)}`}
-          className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#181818]/95 pl-2.5 pr-1 py-1 shadow-lg backdrop-blur-md hover:border-[#FF6B00]/35 transition"
+          className="pointer-events-auto inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-[#181818]/95 pl-2.5 pr-1.5 py-1.5 shadow-lg backdrop-blur-md hover:border-[#FF6B00]/40 transition"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/wippo-icon.png" alt="" className="h-5 w-5 object-contain" />
-          <span className="text-[12px] font-medium text-white/80 pr-1">Wippo</span>
+          <span className="text-[12px] font-medium text-white/80">Document on Wippo</span>
           <span className="rounded-full bg-[#FF6B00] px-2.5 py-1 text-[11px] font-bold text-white">
             Join free
           </span>
