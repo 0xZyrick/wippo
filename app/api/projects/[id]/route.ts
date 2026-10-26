@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { hasDatabase, prisma } from "@/lib/db";
 import { memory } from "@/lib/store";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
-function cleanLinks(raw: unknown): Prisma.InputJsonValue | null | undefined {
+function cleanLinks(
+  raw: unknown
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
   if (raw === undefined) return undefined;
-  if (raw === null) return null;
+  if (raw === null) return Prisma.DbNull;
   if (typeof raw !== "object") return undefined;
   const o = raw as Record<string, unknown>;
   const out: Record<string, string> = {};
@@ -14,10 +16,12 @@ function cleanLinks(raw: unknown): Prisma.InputJsonValue | null | undefined {
     const v = o[key];
     if (typeof v === "string" && v.trim()) out[key] = v.trim();
   }
-  return Object.keys(out).length ? out : null;
+  return Object.keys(out).length ? out : Prisma.DbNull;
 }
 
-function serializeLinks(links: unknown): { x?: string; website?: string; other?: string } | undefined {
+function serializeLinks(
+  links: unknown
+): { x?: string; website?: string; other?: string } | undefined {
   if (!links || typeof links !== "object") return undefined;
   const o = links as Record<string, unknown>;
   const out: { x?: string; website?: string; other?: string } = {};
@@ -35,7 +39,10 @@ export async function GET(
   if (!hasDatabase) {
     const found = memory.getProjectById(params.id);
     if (!found) {
-      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+      return NextResponse.json(
+        { error: "We could not find that project." },
+        { status: 404 }
+      );
     }
     return NextResponse.json({
       project: {
@@ -56,7 +63,10 @@ export async function GET(
     },
   });
   if (!project) {
-    return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+    return NextResponse.json(
+      { error: "We could not find that project." },
+      { status: 404 }
+    );
   }
   return NextResponse.json({
     project: {
@@ -87,7 +97,10 @@ export async function PATCH(
 ) {
   const user = await getSessionUser();
   if (!user) {
-    return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Please sign in to continue." },
+      { status: 401 }
+    );
   }
 
   let body: {
@@ -106,8 +119,10 @@ export async function PATCH(
   }
 
   const title = typeof body.title === "string" ? body.title.trim() : undefined;
-  const intent = typeof body.intent === "string" ? body.intent.trim() : undefined;
-  const linksValue = body.links !== undefined ? cleanLinks(body.links) : undefined;
+  const intent =
+    typeof body.intent === "string" ? body.intent.trim() : undefined;
+  const linksValue =
+    body.links !== undefined ? cleanLinks(body.links) : undefined;
   const imageUrl =
     body.imageUrl === null
       ? null
@@ -116,10 +131,12 @@ export async function PATCH(
         : undefined;
 
   if (title !== undefined && !title) {
-    return NextResponse.json({ error: "Please add a project title." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Please add a project title." },
+      { status: 400 }
+    );
   }
 
-  // Cap data-URL size so Postgres / payload doesn't silently fail
   if (imageUrl && imageUrl.startsWith("data:") && imageUrl.length > 900_000) {
     return NextResponse.json(
       {
@@ -131,18 +148,23 @@ export async function PATCH(
   }
 
   if (!hasDatabase) {
+    const memoryLinks =
+      linksValue === undefined
+        ? undefined
+        : linksValue === Prisma.DbNull
+          ? {}
+          : (linksValue as { x?: string; website?: string; other?: string });
     const updated = memory.updateProject(params.id, user.id, {
       title,
       intent,
-      links: linksValue && linksValue !== null && typeof linksValue === "object"
-        ? (linksValue as { x?: string; website?: string; other?: string })
-        : linksValue === null
-          ? {}
-          : undefined,
+      links: memoryLinks,
       imageUrl,
     });
     if (!updated) {
-      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+      return NextResponse.json(
+        { error: "We could not find that project." },
+        { status: 404 }
+      );
     }
     return NextResponse.json({
       project: {
@@ -158,20 +180,27 @@ export async function PATCH(
     });
   }
 
-  const existing = await prisma.project.findUnique({ where: { id: params.id } });
+  const existing = await prisma.project.findUnique({
+    where: { id: params.id },
+  });
   if (!existing || existing.creatorId !== user.id) {
-    return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+    return NextResponse.json(
+      { error: "We could not find that project." },
+      { status: 404 }
+    );
   }
 
   try {
+    const data: Prisma.ProjectUpdateInput = {
+      ...(title !== undefined ? { title } : {}),
+      ...(intent !== undefined ? { intent } : {}),
+      ...(linksValue !== undefined ? { links: linksValue } : {}),
+      ...(imageUrl !== undefined ? { imageUrl } : {}),
+    };
+
     const project = await prisma.project.update({
       where: { id: params.id },
-      data: {
-        ...(title !== undefined ? { title } : {}),
-        ...(intent !== undefined ? { intent } : {}),
-        ...(linksValue !== undefined ? { links: linksValue } : {}),
-        ...(imageUrl !== undefined ? { imageUrl } : {}),
-      },
+      data,
       include: { creator: { select: { handle: true } } },
     });
 
@@ -205,20 +234,31 @@ export async function DELETE(
 ) {
   const user = await getSessionUser();
   if (!user) {
-    return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Please sign in to continue." },
+      { status: 401 }
+    );
   }
 
   if (!hasDatabase) {
     const ok = memory.deleteProject(params.id, user.id);
     if (!ok) {
-      return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+      return NextResponse.json(
+        { error: "We could not find that project." },
+        { status: 404 }
+      );
     }
     return NextResponse.json({ ok: true });
   }
 
-  const existing = await prisma.project.findUnique({ where: { id: params.id } });
+  const existing = await prisma.project.findUnique({
+    where: { id: params.id },
+  });
   if (!existing || existing.creatorId !== user.id) {
-    return NextResponse.json({ error: "We could not find that project." }, { status: 404 });
+    return NextResponse.json(
+      { error: "We could not find that project." },
+      { status: 404 }
+    );
   }
 
   await prisma.project.delete({ where: { id: params.id } });
