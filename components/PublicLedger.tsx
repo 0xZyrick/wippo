@@ -715,26 +715,34 @@ export function PublicLedger({ handle, slug }: { handle: string; slug: string })
         </div>
       )}
 
-      {/* Viral growth badge — bottom center mobile, top-right desktop */}
-      <div className="fixed bottom-6 left-1/2 z-50 w-[min(92%,22rem)] -translate-x-1/2 sm:bottom-auto sm:left-auto sm:right-6 sm:top-6 sm:translate-x-0">
+      {/* Mobile only — compact bottom CTA (above tab bar) */}
+      <div className="fixed bottom-20 left-1/2 z-50 w-[min(92%,20rem)] -translate-x-1/2 lg:hidden">
         <Link
           href={`/auth?utm_source=badge&utm_medium=public_page&utm_campaign=join&utm_content=${encodeURIComponent(handle + "/" + slug)}`}
-          className="flex items-center justify-between gap-3 rounded-full border border-white/10 bg-[#121212]/80 px-4 py-3 shadow-xl backdrop-blur-md transition hover:scale-[1.02] hover:border-[#FF6B00]/40 hover:bg-[#181818]/95"
+          className="flex items-center justify-between gap-2 rounded-full border border-white/10 bg-[#121212]/90 px-3.5 py-2.5 shadow-xl backdrop-blur-md"
         >
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/wippo-icon.png" alt="" className="h-7 w-7 object-contain shrink-0" />
-            <div className="min-w-0 flex flex-col">
-              <span className="text-[12px] font-semibold text-white leading-none">
-                Building something too?
-              </span>
-              <span className="mt-1 text-[10px] text-white/45 leading-none">
-                Launch your living timeline
-              </span>
-            </div>
+            <img src="/brand/wippo-icon.png" alt="" className="h-6 w-6 object-contain shrink-0" />
+            <span className="text-[12px] font-semibold text-white truncate">Build in public</span>
           </div>
-          <span className="shrink-0 rounded-full bg-[#FF6B00] px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-[#FF6B00]/20">
-            Claim Yours Free
+          <span className="shrink-0 rounded-full bg-[#FF6B00] px-2.5 py-1 text-[11px] font-bold text-white">
+            Free
+          </span>
+        </Link>
+      </div>
+
+      {/* Desktop — slim top-right chip, does not cover journey */}
+      <div className="pointer-events-none fixed right-5 top-5 z-40 hidden lg:block">
+        <Link
+          href={`/auth?utm_source=badge&utm_medium=public_page&utm_campaign=join&utm_content=${encodeURIComponent(handle + "/" + slug)}`}
+          className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#181818]/95 pl-2.5 pr-1 py-1 shadow-lg backdrop-blur-md hover:border-[#FF6B00]/35 transition"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/wippo-icon.png" alt="" className="h-5 w-5 object-contain" />
+          <span className="text-[12px] font-medium text-white/80 pr-1">Wippo</span>
+          <span className="rounded-full bg-[#FF6B00] px-2.5 py-1 text-[11px] font-bold text-white">
+            Join free
           </span>
         </Link>
       </div>

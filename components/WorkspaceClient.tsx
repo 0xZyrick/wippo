@@ -27,7 +27,26 @@ import {
 import { updateLabel } from "@/lib/slug";
 import type { ProjectDTO, UpdateDTO } from "@/lib/types";
 
-type StagedFile = { id: string; file: File; preview: string };
+type StagedFile = {
+  id: string;
+  file: File;
+  preview: string;
+  status: "uploading" | "ready" | "error";
+  progress: string;
+  remoteUrl?: string;
+  mediaKind?: string;
+  error?: string;
+};
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_VIDEO_BYTES = 12 * 1024 * 1024; // 12 MB (server limit)
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
+function formatBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 type ProjectLinks = {
   x?: string;
@@ -101,8 +120,16 @@ export function WorkspaceClient({
 
   const publicUrl = useMemo(() => {
     if (!selected) return "";
-    const origin =
+    let origin =
       typeof window !== "undefined" ? window.location.origin : "";
+    // Prefer apex host in shared links (no www.)
+    try {
+      const u = new URL(origin || "https://wippo.online");
+      u.host = u.host.replace(/^www\./, "");
+      origin = u.origin;
+    } catch {
+      /* keep */
+    }
     return `${origin}/${userHandle}/${selected.slug}`;
   }, [selected, userHandle]);
 
@@ -111,7 +138,8 @@ export function WorkspaceClient({
     if (!selected) return "";
     try {
       const u = new URL(publicUrl);
-      return `${u.host}${u.pathname}`.replace(/\/$/, "");
+      const host = u.host.replace(/^www\./, "");
+      return `${host}${u.pathname}`.replace(/\/$/, "");
     } catch {
       return `${userHandle}/${selected.slug}`;
     }
@@ -179,17 +207,92 @@ export function WorkspaceClient({
       setError("Images, videos, or audio only.");
       return;
     }
-    const next: StagedFile[] = arr.slice(0, 8).map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      file,
-      preview: URL.createObjectURL(file),
-    }));
+    setError("");
+    const room = Math.max(0, 8 - staged.length);
+    const batch = arr.slice(0, room);
+    if (!batch.length) {
+      setError("You can attach up to 8 files per update.");
+      return;
+    }
+
+    const created: StagedFile[] = batch.map((file) => {
+      const isVid = file.type.startsWith("video/");
+      const isAud = file.type.startsWith("audio/");
+      const limit = isVid ? MAX_VIDEO_BYTES : isAud ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES;
+      const tooBig = file.size > limit;
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        file,
+        preview: URL.createObjectURL(file),
+        status: tooBig ? "error" : "uploading",
+        progress: tooBig
+          ? `Too large (${formatBytes(file.size)}). Max ${formatBytes(limit)}.`
+          : "Uploading…",
+        error: tooBig
+          ? `File is ${formatBytes(file.size)}. Keep under ${formatBytes(limit)}.`
+          : undefined,
+      };
+    });
+
     setStaged((prev) => {
-      const merged = [...prev, ...next].slice(0, 8);
-      setStageIndex(Math.max(0, merged.length - next.length));
+      const merged = [...prev, ...created].slice(0, 8);
+      setStageIndex(Math.max(0, merged.length - created.length));
       return merged;
     });
-    setError("");
+
+    // Upload each eligible file immediately
+    for (const item of created) {
+      if (item.status === "error") continue;
+      void (async () => {
+        try {
+          const form = new FormData();
+          form.append("file", item.file);
+          const up = await fetch("/api/upload", { method: "POST", body: form });
+          const upData = await up.json().catch(() => ({}));
+          if (!up.ok || !upData.url) {
+            const msg =
+              upData.error ||
+              (up.status === 503
+                ? "Storage is not configured on the server."
+                : "Upload failed. Try a smaller file.");
+            setStaged((prev) =>
+              prev.map((s) =>
+                s.id === item.id
+                  ? { ...s, status: "error", progress: msg, error: msg }
+                  : s
+              )
+            );
+            return;
+          }
+          setStaged((prev) =>
+            prev.map((s) =>
+              s.id === item.id
+                ? {
+                    ...s,
+                    status: "ready",
+                    progress: `Ready · ${formatBytes(item.file.size)}`,
+                    remoteUrl: upData.url as string,
+                    mediaKind: (upData.mediaKind as string) || undefined,
+                  }
+                : s
+            )
+          );
+        } catch {
+          setStaged((prev) =>
+            prev.map((s) =>
+              s.id === item.id
+                ? {
+                    ...s,
+                    status: "error",
+                    progress: "Upload failed. Check connection and try again.",
+                    error: "Upload failed.",
+                  }
+                : s
+            )
+          );
+        }
+      })();
+    }
   };
 
   const removeStaged = (id: string) => {
@@ -424,38 +527,33 @@ export function WorkspaceClient({
   const commit = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedId || why.trim().length < 3) return;
+    const uploading = staged.some((s) => s.status === "uploading");
+    if (uploading) {
+      setError("Wait until media finishes uploading (green Ready).");
+      return;
+    }
+    const failed = staged.filter((s) => s.status === "error");
+    if (failed.length) {
+      setError("Remove failed media or replace it before publishing.");
+      return;
+    }
     setBusy(true);
     setError("");
     setToast("");
     try {
-      const mediaUrls: string[] = [];
-      let mediaKind: string | undefined;
-      for (const item of staged) {
-        let url: string | null = null;
-        try {
-          const form = new FormData();
-          form.append("file", item.file);
-          const up = await fetch("/api/upload", { method: "POST", body: form });
-          const upData = await up.json();
-          if (up.ok && upData.url) {
-            url = upData.url;
-            if (!mediaKind) mediaKind = upData.mediaKind;
-          }
-        } catch {
-          /* fall through */
-        }
-        if (!url) {
-          url = await fileToDataUrl(item.file);
-        }
-        if (url) mediaUrls.push(url);
-        if (!mediaKind) {
-          mediaKind = item.file.type.startsWith("video/")
-            ? "video"
-            : item.file.type.startsWith("audio/")
-              ? "audio"
-              : "image";
-        }
+      const ready = staged.filter((s) => s.status === "ready" && s.remoteUrl);
+      const mediaUrls = ready.map((s) => s.remoteUrl!) ;
+      const mediaKind = ready[0]?.mediaKind || (ready[0]?.file.type.startsWith("video/") ? "video" : ready[0]?.file.type.startsWith("audio/") ? "audio" : ready.length ? "image" : undefined);
+
+      if (staged.length && !mediaUrls.length) {
+        throw new Error("Media did not finish uploading. Remove it or try again.");
       }
+
+      setToast(
+        mediaUrls.length
+          ? `Publishing with ${mediaUrls.length} file${mediaUrls.length > 1 ? "s" : ""}…`
+          : "Publishing…"
+      );
 
       const res = await fetch(`/api/projects/${selectedId}/updates`, {
         method: "POST",
@@ -467,9 +565,8 @@ export function WorkspaceClient({
           mediaKind,
         }),
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not publish that update. Please try again.");
+      if (!res.ok) throw new Error(data.error || "Could not publish. Please try again.");
       setHeadline("");
       setWhy("");
       staged.forEach((s) => URL.revokeObjectURL(s.preview));
@@ -479,28 +576,15 @@ export function WorkspaceClient({
       await loadUpdates(selectedId);
       await loadProjects();
       setPreviewTick((n) => n + 1);
-      const n = data.update?.number;
-      const path = selected ? `/${userHandle}/${selected.slug}?u=${n}` : "/";
-      const link = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
-      try {
-        await navigator.clipboard.writeText(link);
-        setToast(`${updateLabel(n)} saved · link copied`);
-      } catch {
-        setToast(`${updateLabel(n)} saved`);
-      }
+      setToast("Update published");
+      setTimeout(() => setToast(""), 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      setToast("");
     } finally {
       setBusy(false);
     }
   };
-
-  const activeStage = staged[stageIndex] || null;
-  const chronological = useMemo(
-    () => [...updates].sort((a, b) => a.number - b.number),
-    [updates]
-  );
-
 
   const openEditUpdate = (u: UpdateDTO) => {
     setUpdateMenuId(null);
@@ -579,12 +663,27 @@ export function WorkspaceClient({
     } catch {
       /* still show card */
     }
+    // Prefer this update's media; fall back to project logo
+    let media: string | null | undefined = selected.imageUrl;
+    if (u.mediaUrl) {
+      const raw = u.mediaUrl.trim();
+      if (raw.startsWith("[")) {
+        try {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr) && typeof arr[0] === "string") media = arr[0];
+        } catch {
+          media = raw;
+        }
+      } else {
+        media = raw;
+      }
+    }
     setShareCard({
       kind: "update",
       title: u.headline || updateLabel(u.number),
       subtitle: selected.title,
       url: link,
-      imageUrl: selected.imageUrl,
+      imageUrl: media,
     });
   };
 
@@ -1301,16 +1400,21 @@ export function WorkspaceClient({
                             }`}
                           >
                             {!staged.length ? (
-                              <div className="text-center">
-                                <Upload
-                                  size={20}
-                                  className="mx-auto text-white/30 mb-2"
-                                  strokeWidth={1.5}
-                                />
-                                <p className="text-[13px] text-white/45">
-                                  Drag & drop or click to upload
+                              <div className="text-center py-2">
+                                <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-full bg-white/[0.04] border border-white/[0.08]">
+                                  <Upload
+                                    size={18}
+                                    className="text-white/40"
+                                    strokeWidth={1.5}
+                                  />
+                                </div>
+                                <p className="text-[13px] text-white/55">
+                                  Add screenshots or a short clip
                                 </p>
-                                <label className="mt-2 inline-block cursor-pointer text-[12px] font-semibold text-[#FF6B00]">
+                                <p className="mt-1 text-[11px] text-white/30">
+                                  Images ≤ 5 MB · Videos ≤ 12 MB · max 8
+                                </p>
+                                <label className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-[#FF6B00]/15 px-3.5 py-1.5 text-[12px] font-semibold text-[#FF6B00] hover:bg-[#FF6B00]/25 transition">
                                   Choose files
                                   <input
                                     type="file"
@@ -1327,7 +1431,7 @@ export function WorkspaceClient({
                               <div>
                                 {/* Compact swipe stage */}
                                 <div className="relative">
-                                  <div className="relative h-36 overflow-hidden rounded-xl bg-black/50">
+                                  <div className="relative h-44 overflow-hidden rounded-xl bg-[#0a0a0a] border border-white/[0.06]">
                                     {activeStage?.file.type.startsWith("video/") ? (
                                       <video
                                         key={activeStage.id}
@@ -1381,7 +1485,37 @@ export function WorkspaceClient({
                                         </span>
                                       </>
                                     )}
+                                    {activeStage && (
+                                      <div
+                                        className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                          activeStage.status === "ready"
+                                            ? "bg-emerald-500/90 text-white"
+                                            : activeStage.status === "uploading"
+                                              ? "bg-amber-500/90 text-black"
+                                              : "bg-red-500/90 text-white"
+                                        }`}
+                                      >
+                                        {activeStage.status === "ready"
+                                          ? "Ready"
+                                          : activeStage.status === "uploading"
+                                            ? "Uploading…"
+                                            : "Failed"}
+                                      </div>
+                                    )}
                                   </div>
+                                  {activeStage && (
+                                    <p
+                                      className={`mt-1.5 text-[11px] ${
+                                        activeStage.status === "ready"
+                                          ? "text-emerald-400"
+                                          : activeStage.status === "uploading"
+                                            ? "text-amber-300"
+                                            : "text-red-400"
+                                      }`}
+                                    >
+                                      {activeStage.file.name} · {activeStage.progress}
+                                    </p>
+                                  )}
                                   <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
                                     {staged.map((s, i) => (
                                       <button
@@ -1476,7 +1610,7 @@ export function WorkspaceClient({
                                 />
                               )}
                               <p className="mt-1.5 text-[11px] text-[#B3B3B3]">
-                                Media attached · replace/remove in a later pass when upload API is wired
+                                Media on this update
                               </p>
                             </div>
                           ) : (
@@ -1754,110 +1888,97 @@ export function WorkspaceClient({
       )}
 
 
-      {/* Share / OG-style preview card */}
+      {/* Share card — same layout for project & update */}
       {shareCard && (
         <div
           className="fixed inset-0 z-[95] grid place-items-center bg-black/70 px-4 backdrop-blur-sm"
           onClick={() => setShareCard(null)}
         >
           <div
-            className="w-full max-w-lg"
+            className="relative w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="mb-3 text-center text-[13px] text-emerald-300">
-              Link copied · preview of how it can look when shared
-            </p>
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f1218] shadow-2xl">
-              <div
-                className="relative p-5 sm:p-6"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
-                  backgroundSize: "24px 24px",
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {shareCard.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={shareCard.imageUrl}
-                        alt=""
-                        className="h-12 w-12 rounded-xl object-cover shrink-0"
-                      />
-                    ) : (
-                      <div className="grid h-12 w-12 place-items-center rounded-xl bg-[#FF6B00]/20 text-[#FF6B00] text-[16px] font-bold shrink-0">
-                        {shareCard.title.slice(0, 1).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-[18px] font-bold text-white truncate">
-                        {shareCard.title}
-                      </p>
-                      <p className="text-[13px] text-white/50 truncate">
-                        {shareCard.kind === "project"
-                          ? `By ${shareCard.subtitle}`
-                          : shareCard.subtitle}
-                      </p>
-                    </div>
-                  </div>
-                  {shareCard.kind === "project" && (
-                    <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        Building in Public
-                      </span>
-                      <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-white/60">
-                        {updates.length} milestone{updates.length === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {shareCard.kind === "project" && shareCard.updates && shareCard.updates.length > 0 && (
-                  <div className="mt-5 border-t border-white/10 pt-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40 mb-2.5">
-                      Latest updates
-                    </p>
-                    <ul className="space-y-2">
-                      {shareCard.updates.map((row, i) => (
-                        <li key={i} className="flex items-start justify-between gap-3 text-[13px]">
-                          <span className="text-white/85 line-clamp-1">{row.headline}</span>
-                          <span className="text-white/35 shrink-0 text-[12px]">{row.when}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {shareCard.kind === "update" && (
-                  <div className="mt-5 border-t border-white/10 pt-4">
-                    <p className="text-[13px] text-white/55">
-                      Open this update on the public project page.
-                    </p>
-                  </div>
-                )}
-
-                <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
-                  <p className="text-[12px] text-white/40 truncate min-w-0">
-                    {shareCard.url.replace(/^https?:\/\//, "")}
-                  </p>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/brand/wippo-icon.png"
-                    alt="Wippo"
-                    className="h-5 w-5 object-contain opacity-80 shrink-0"
-                  />
-                </div>
-              </div>
-            </div>
             <button
               type="button"
               onClick={() => setShareCard(null)}
-              className="mt-4 w-full rounded-full border border-white/10 py-2.5 text-[13px] text-white/70 hover:text-white hover:bg-white/[0.04]"
+              className="absolute -right-1 -top-1 z-10 grid h-8 w-8 place-items-center rounded-full bg-[#242424] text-white/70 hover:text-white border border-white/10"
+              aria-label="Close"
             >
-              Done
+              <X size={14} />
             </button>
+            <p className="mb-3 text-center text-[12px] text-emerald-400/90">
+              Link copied
+            </p>
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl flex flex-col sm:flex-row min-h-[168px]">
+              {/* Left visual */}
+              <div className="relative sm:w-[40%] min-h-[148px] bg-[#141414] shrink-0 flex items-center justify-center p-4">
+                {shareCard.kind === "project" ? (
+                  shareCard.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={shareCard.imageUrl}
+                      alt=""
+                      className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10 shadow-lg"
+                    />
+                  ) : (
+                    <div className="grid h-20 w-20 place-items-center rounded-full bg-[#FF6B00]/20 text-[#FF6B00] text-[28px] font-bold ring-2 ring-white/10">
+                      {shareCard.title.slice(0, 1).toUpperCase()}
+                    </div>
+                  )
+                ) : shareCard.imageUrl ? (
+                  // Update: show that update's media (contain, not full bleed circle)
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={shareCard.imageUrl}
+                    alt=""
+                    className="max-h-[120px] max-w-full rounded-xl object-contain"
+                  />
+                ) : (
+                  <div className="grid h-20 w-20 place-items-center rounded-2xl bg-white/5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/brand/wippo-icon.png"
+                      alt=""
+                      className="h-10 w-10 object-contain opacity-90"
+                    />
+                  </div>
+                )}
+              </div>
+              {/* Right info — same for both */}
+              <div className="flex flex-1 flex-col justify-between p-4 sm:p-5 bg-white text-[#121212]">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/brand/wippo-icon.png"
+                      alt=""
+                      className="h-4 w-4 object-contain"
+                    />
+                    <span className="text-[11px] font-semibold text-[#6a6a6a]">
+                      Wippo
+                    </span>
+                  </div>
+                  <h3 className="text-[16px] font-semibold leading-snug line-clamp-2">
+                    {shareCard.title}
+                  </h3>
+                  <p className="mt-1.5 text-[13px] text-[#6a6a6a] line-clamp-2">
+                    {shareCard.kind === "project"
+                      ? `Follow ${shareCard.subtitle} building in public`
+                      : `Update on ${shareCard.subtitle}`}
+                  </p>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-[#9a9a9a] truncate min-w-0">
+                    {shareCard.url
+                      .replace(/^https?:\/\//, "")
+                      .replace(/^www\./, "")}
+                  </p>
+                  <span className="shrink-0 rounded-full bg-[#FF6B00] px-3 py-1.5 text-[11px] font-bold text-white">
+                    Open
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
