@@ -716,6 +716,12 @@ export function WorkspaceClient({
     });
   };
 
+  const activeStage = staged[stageIndex] || null;
+  const chronological = useMemo(
+    () => [...updates].sort((a, b) => a.number - b.number),
+    [updates]
+  );
+
   const navItems = [
     { id: "projects" as const, label: "Projects", Icon: FolderKanban },
     { id: "settings" as const, label: "Edit", Icon: Settings },
